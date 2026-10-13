@@ -15,6 +15,9 @@ const { startCleanupScheduler } = require('./src/jobs/cleanup');
 
 const app = express();
 
+// Trust proxy for Render / Cloudflare reverse proxies (required by express-rate-limit)
+app.set('trust proxy', 1);
+
 // ==================== SECURITY MIDDLEWARE ====================
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
