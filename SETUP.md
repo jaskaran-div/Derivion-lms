@@ -71,6 +71,10 @@ FROM_EMAIL=noreply@derivion.com
 FROM_NAME=Derivion LMS
 ```
 
+The local environment file must stay untracked. Use `backend/.env.example` as
+the variable-name reference, and store real credentials only in your local
+`.env` file or the hosting provider's environment settings.
+
 ---
 
 ## 🚀 Step 3: Run Database Migration & Seed
@@ -186,6 +190,30 @@ derivion-lms/
 ```
 
 ---
+
+## ☁️ Deploy both apps to Render
+
+The repository-root `render.yaml` defines separate Render web services for the
+API (`backend/`) and Next.js app (`frontend/`). Connect this repository to
+Render as a Blueprint to deploy both services from the same GitHub repository.
+
+Before deploying:
+
+1. Create a PostgreSQL database on Render (or use another PostgreSQL database)
+   and set the API service's `DATABASE_URL` to its internal connection string.
+   The Blueprint intentionally does not provision a database.
+2. The Blueprint generates `JWT_SECRET` and `JWT_REFRESH_SECRET`. Keep all
+   credentials and other secrets in Render's environment settings.
+3. For persistent course uploads, configure `AWS_ACCESS_KEY_ID`,
+   `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, and `AWS_S3_BUCKET` on the API
+   service. Render's local filesystem is not persistent across deploys.
+4. Run `npm run db:push` from the API service's Shell once the database is
+   configured to create the Prisma schema.
+5. Add integrations such as Razorpay and SMTP as API service environment
+   variables when needed.
+
+The API's `CLIENT_URL` and the frontend's `NEXT_PUBLIC_API_URL` use the
+Blueprint's Render service URLs. If you use custom domains, update both values.
 
 ## 🎯 Features Summary
 
