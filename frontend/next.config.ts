@@ -24,6 +24,10 @@ const nextConfig = {
       },
     ];
   },
+  allowedDevOrigins: [
+    "derivion-lms-1.onrender.com",
+    "*.onrender.com",
+  ],
 };
 
 module.exports = nextConfig;
