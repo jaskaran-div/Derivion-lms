@@ -1,0 +1,11 @@
+# Dependencies
+/backend/node_modules/
+
+# Local environment files
+/backend/.env
+/backend/.env.*
+!/backend/.env.example
+
+# Generated files
+/backend/uploads/
+/backend/npm-debug.log*
