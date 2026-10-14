@@ -3,6 +3,7 @@ const Module = require('node:module');
 const { after, beforeEach, describe, it } = require('node:test');
 
 const orderRequests = [];
+let razorpayOrderError = null;
 const prisma = {
   course: {},
   enrollment: {},
@@ -29,6 +30,7 @@ installMockModule(require.resolve('razorpay'), class MockRazorpay {
     this.orders = {
       create: async (options) => {
         orderRequests.push(options);
+        if (razorpayOrderError) throw razorpayOrderError;
         return { id: `order_${orderRequests.length}`, ...options };
       },
     };
@@ -73,6 +75,7 @@ const createCoursePayload = (overrides = {}) => ({
 describe('course EMI eligibility', () => {
   beforeEach(() => {
     orderRequests.length = 0;
+    razorpayOrderError = null;
     lastCourseUpdate = null;
     storedCourse = {
       id: 'course-1',
@@ -210,6 +213,39 @@ describe('course EMI eligibility', () => {
 
     assert.equal(res.statusCode, 503);
     assert.equal(orderRequests.length, 0);
+  });
+
+  it('returns an actionable error when Razorpay cannot find the selected configuration', async () => {
+    razorpayOrderError = {
+      statusCode: 400,
+      error: {
+        code: 'BAD_REQUEST_ERROR',
+        description: 'The id provided does not exist',
+        reason: 'input_validation_failed',
+        source: 'business',
+        step: 'payment_initiation',
+      },
+    };
+    const loggedErrors = [];
+    const originalConsoleError = console.error;
+    console.error = (...args) => loggedErrors.push(args);
+
+    try {
+      const res = response();
+      await createOrder({
+        body: { courseId: storedCourse.id },
+        user: { id: 'student-1' },
+      }, res);
+
+      assert.equal(res.statusCode, 502);
+      assert.match(res.body.message, /same Razorpay account and mode/);
+      assert.equal(loggedErrors.length, 1);
+      assert.equal(loggedErrors[0][1].checkoutConfigId, 'config_TniERfRtPJaKjZ');
+      assert.equal('key_id' in loggedErrors[0][1], false);
+      assert.equal('key_secret' in loggedErrors[0][1], false);
+    } finally {
+      console.error = originalConsoleError;
+    }
   });
 });
 

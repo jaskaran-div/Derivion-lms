@@ -15,8 +15,10 @@ const getRazorpayInstance = () => {
 
 // POST /api/payments/create-order
 const createOrder = async (req, res) => {
+  let courseId;
+  let checkoutConfigId;
   try {
-    const { courseId } = req.body;
+    ({ courseId } = req.body);
     const userId = req.user.id;
 
     if (typeof courseId !== 'string' || !courseId.trim()) {
@@ -43,7 +45,7 @@ const createOrder = async (req, res) => {
 
     const amount = parseFloat(course.discountPrice || course.price);
     const amountInPaise = Math.round(amount * 100);
-    const checkoutConfigId = getCheckoutConfigurationId(course.emiEnabled);
+    checkoutConfigId = getCheckoutConfigurationId(course.emiEnabled);
     if (!checkoutConfigId) {
       return res.status(503).json({
         success: false,
@@ -60,6 +62,11 @@ const createOrder = async (req, res) => {
       courseId,
       emiEnabled: course.emiEnabled === true,
       checkoutConfigId,
+      razorpayKeyMode: process.env.RAZORPAY_KEY_ID.startsWith('rzp_test_')
+        ? 'test'
+        : process.env.RAZORPAY_KEY_ID.startsWith('rzp_live_')
+          ? 'live'
+          : 'unknown',
     });
 
     // Create Razorpay order
@@ -108,6 +115,31 @@ const createOrder = async (req, res) => {
       },
     });
   } catch (error) {
+    if (error?.statusCode && error?.error) {
+      console.error('Razorpay order request rejected:', {
+        courseId,
+        checkoutConfigId,
+        statusCode: error.statusCode,
+        code: error.error.code,
+        description: error.error.description,
+        reason: error.error.reason,
+        source: error.error.source,
+        step: error.error.step,
+      });
+
+      if (error.error.description === 'The id provided does not exist') {
+        return res.status(502).json({
+          success: false,
+          message: 'Razorpay could not find this payment configuration. Verify that the configuration ID and API keys belong to the same Razorpay account and mode.',
+        });
+      }
+
+      return res.status(502).json({
+        success: false,
+        message: 'Razorpay rejected the payment order request.',
+      });
+    }
+
     console.error('Create Razorpay order error:', error);
     res.status(500).json({ success: false, message: error.message || 'Failed to create payment order.' });
   }
