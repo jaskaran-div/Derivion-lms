@@ -5,6 +5,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import { coursesAPI } from "@/lib/api";
 import Link from "next/link";
 import { Search, Filter, SlidersHorizontal, Star, Users, Clock, BookOpen } from "lucide-react";
+import CourseShareMenu from "@/components/courses/CourseShareMenu";
 
 interface Course {
   id: string;
@@ -229,8 +230,9 @@ export default function CoursesPage() {
       ) : (
         <div className="grid-courses">
           {courses.map((course) => (
-            <Link href={`/courses/${course.slug}`} key={course.id}>
-              <div className="course-card">
+            <div key={course.id}>
+              <Link href={`/courses/${course.slug}`}>
+                <div className="course-card">
                 <div
                   className="course-card-image"
                   style={{
@@ -278,8 +280,12 @@ export default function CoursesPage() {
                     <button className="btn btn-primary btn-sm">Enroll Now</button>
                   </div>
                 </div>
+                </div>
+              </Link>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                <CourseShareMenu slug={course.slug} title={course.title} />
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

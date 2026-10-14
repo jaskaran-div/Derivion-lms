@@ -8,10 +8,11 @@ import { useAuthStore } from "@/store/authStore";
 import toast from "react-hot-toast";
 import CustomVideoPlayer from "@/components/player/CustomVideoPlayer";
 import LearnerContentProtection from "@/components/content/LearnerContentProtection";
+import CourseShareMenu from "@/components/courses/CourseShareMenu";
 import {
   Star, Users, Clock, BookOpen, CheckCircle2, Play, FileText,
   HelpCircle, Lock, ChevronDown, ChevronUp,
-  Award, Globe, Share2, ThumbsUp, ThumbsDown,
+  Award, Globe, ThumbsUp, ThumbsDown,
   Bookmark, Search, MoreVertical, MessageSquare,
   Sparkles, PlayCircle
 } from "lucide-react";
@@ -220,7 +221,7 @@ export default function CourseDetailPage() {
     setPaying(true);
     try {
       const res = await paymentsAPI.createOrder(course.id);
-      const { orderId, amount, amountInPaise, currency, keyId, prefill } = res.data.data;
+      const { orderId, amount, amountInPaise, currency, keyId, checkoutConfigId, prefill } = res.data.data;
 
       const loadScript = () => {
         return new Promise<boolean>((resolve) => {
@@ -251,6 +252,7 @@ export default function CourseDetailPage() {
         key: razorpayKey,
         amount: amountInPaise || Math.round(amount * 100),
         currency: currency || "INR",
+        checkout_config_id: checkoutConfigId,
         name: "Derivion LMS",
         description: course.title,
         order_id: orderId,
@@ -393,13 +395,6 @@ export default function CourseDetailPage() {
   const collapseAll = () => {
     setExpandedSections(new Set());
     setShowOptions(false);
-  };
-
-  const handleShare = () => {
-    if (typeof window !== "undefined") {
-      navigator.clipboard.writeText(window.location.href);
-      toast.success("Course link copied to clipboard! 📋");
-    }
   };
 
   const handleLike = () => {
@@ -617,9 +612,7 @@ export default function CourseDetailPage() {
             {/* Action Bar (Download & Save Note removed as requested) */}
             <div className="player-action-bar" style={{ justifyContent: "flex-end", marginTop: 12 }}>
               <div className="player-action-group">
-                <button className="player-action-btn primary" onClick={handleShare}>
-                  <Share2 size={16} /> Share
-                </button>
+                <CourseShareMenu slug={course.slug} title={course.title} />
                 <button
                   className={`player-action-btn ${liked ? "active" : ""}`}
                   onClick={handleLike}

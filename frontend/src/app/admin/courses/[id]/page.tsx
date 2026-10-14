@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
 import { coursesAPI } from "@/lib/api";
+import { isAxiosError } from "axios";
 import toast from "react-hot-toast";
 import {
   ArrowLeft, Plus, Trash2, Upload, ChevronDown, ChevronUp,
@@ -22,6 +23,7 @@ interface Section {
 }
 interface Course {
   id: string; title: string; slug: string; status: string; price: number;
+  emiEnabled: boolean;
   sections: Section[]; assessments: any[];
 }
 
@@ -50,6 +52,8 @@ export default function CourseEditPage() {
   const [showAddSection, setShowAddSection] = useState(false);
   const [addingContent, setAddingContent] = useState<{ sectionId: string; title: string; type: ContentType } | null>(null);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  const [emiEnabled, setEmiEnabled] = useState(false);
+  const [savingEmi, setSavingEmi] = useState(false);
 
   useEffect(() => { if (id) loadCourse(); }, [id]);
 
@@ -57,6 +61,7 @@ export default function CourseEditPage() {
     try {
       const res = await coursesAPI.adminGetOne(id as string);
       setCourse(res.data.data);
+      setEmiEnabled(res.data.data.emiEnabled === true);
       // Auto-expand all sections by default so admin sees all lessons
       if (res.data.data.sections.length > 0) {
         setExpandedSections(new Set(res.data.data.sections.map((s: any) => s.id)));
@@ -65,6 +70,26 @@ export default function CourseEditPage() {
       toast.error("Failed to load course.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveEmi = async () => {
+    if (!course) return;
+    setSavingEmi(true);
+    try {
+      const res = await coursesAPI.update(course.id, { emiEnabled });
+      setCourse((current) => current
+        ? { ...current, emiEnabled: res.data.data.emiEnabled === true }
+        : current);
+      setEmiEnabled(res.data.data.emiEnabled === true);
+      toast.success("EMI setting updated.");
+    } catch (err: unknown) {
+      const message = isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      toast.error(message || "Failed to update EMI setting.");
+    } finally {
+      setSavingEmi(false);
     }
   };
 
@@ -222,6 +247,33 @@ export default function CourseEditPage() {
             ) : (
               <><ToggleLeft size={16} /> Publish Course</>
             )}
+          </button>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-header"><span className="card-title">Payment Options</span></div>
+        <div className="card-body">
+          <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={emiEnabled}
+              onChange={(event) => setEmiEnabled(event.target.checked)}
+              disabled={savingEmi}
+              style={{ width: 16, height: 16, accentColor: "var(--primary)", cursor: "pointer" }}
+            />
+            Enable EMI for this course
+          </label>
+          <div className="form-hint" style={{ marginTop: 8 }}>
+            When enabled, eligible students may see supported EMI payment options at checkout. Availability depends on Razorpay, the payment provider and customer eligibility.
+          </div>
+          <button
+            className="btn btn-primary btn-sm"
+            style={{ marginTop: 14 }}
+            onClick={handleSaveEmi}
+            disabled={savingEmi || emiEnabled === course.emiEnabled}
+          >
+            {savingEmi ? "Saving..." : "Save EMI setting"}
           </button>
         </div>
       </div>

@@ -17,6 +17,7 @@ const schema = z.object({
   categoryId: z.string().min(1, "Select a category"),
   price: z.string().refine((v) => !isNaN(parseFloat(v)) && parseFloat(v) >= 0, "Valid price required"),
   discountPrice: z.string().optional(),
+  emiEnabled: z.boolean(),
   level: z.string().min(1, "Select a level"),
   language: z.string().min(1, "Language required"),
   isFree: z.boolean().optional(),
@@ -45,7 +46,7 @@ export default function NewCoursePage() {
 
   const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { level: "Beginner", language: "English", price: "0" },
+    defaultValues: { level: "Beginner", language: "English", price: "0", emiEnabled: false },
   });
 
   useEffect(() => {
@@ -80,6 +81,7 @@ export default function NewCoursePage() {
         price: parseFloat(data.price),
         discountPrice: data.discountPrice ? parseFloat(data.discountPrice) : undefined,
         isFree: isFreeChecked,
+        emiEnabled: data.emiEnabled,
         tags,
         requirements: requirements.filter((r) => r.trim()),
         objectives: objectives.filter((o) => o.trim()),
@@ -454,6 +456,20 @@ export default function NewCoursePage() {
                     </div>
                   </>
                 )}
+
+                <div style={{ marginTop: 18, padding: 12, background: "var(--gray-50)", borderRadius: 10 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      {...register("emiEnabled")}
+                      style={{ width: 16, height: 16, accentColor: "var(--primary)", cursor: "pointer" }}
+                    />
+                    Enable EMI for this course
+                  </label>
+                  <div className="form-hint" style={{ marginTop: 8 }}>
+                    When enabled, eligible students may see supported EMI payment options at checkout. Availability depends on Razorpay, the payment provider and customer eligibility.
+                  </div>
+                </div>
               </div>
             </div>
 
