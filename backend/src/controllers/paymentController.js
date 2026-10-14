@@ -56,6 +56,12 @@ const createOrder = async (req, res) => {
     // Initialize Razorpay
     const razorpay = getRazorpayInstance();
 
+    console.info('Creating Razorpay order with payment configuration:', {
+      courseId,
+      emiEnabled: course.emiEnabled === true,
+      checkoutConfigId,
+    });
+
     // Create Razorpay order
     const rzpOrder = await razorpay.orders.create({
       amount: amountInPaise,

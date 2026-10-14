@@ -103,8 +103,8 @@ describe('course EMI eligibility', () => {
     });
     prisma.payment.create = async ({ data }) => data;
 
-    process.env.RAZORPAY_CONFIG_STANDARD = 'config_Tnh1gJvObgJ0LT';
-    process.env.RAZORPAY_CONFIG_EMI = 'config_Tnh2AojnmncCBq';
+    process.env.RAZORPAY_CONFIG_STANDARD = 'config_TniERfRtPJaKjZ';
+    process.env.RAZORPAY_CONFIG_EMI = 'config_TniFJkBEcjWygb';
     process.env.RAZORPAY_KEY_ID = 'rzp_test_key';
     process.env.RAZORPAY_KEY_SECRET = 'test-secret';
   });
@@ -189,8 +189,8 @@ describe('course EMI eligibility', () => {
 
     assert.equal(res.statusCode, 200);
     assert.equal(orderRequests[0].amount, 20000000);
-    assert.equal(orderRequests[0].checkout_config_id, 'config_Tnh1gJvObgJ0LT');
-    assert.equal(res.body.data.checkoutConfigId, 'config_Tnh1gJvObgJ0LT');
+    assert.equal(orderRequests[0].checkout_config_id, 'config_TniERfRtPJaKjZ');
+    assert.equal(res.body.data.checkoutConfigId, 'config_TniERfRtPJaKjZ');
   });
 
   it('selects the EMI configuration for an EMI-enabled course', async () => {
@@ -199,8 +199,8 @@ describe('course EMI eligibility', () => {
     await createOrder({ body: { courseId: storedCourse.id }, user: { id: 'student-1' } }, res);
 
     assert.equal(res.statusCode, 200);
-    assert.equal(orderRequests[0].checkout_config_id, 'config_Tnh2AojnmncCBq');
-    assert.equal(res.body.data.checkoutConfigId, 'config_Tnh2AojnmncCBq');
+    assert.equal(orderRequests[0].checkout_config_id, 'config_TniFJkBEcjWygb');
+    assert.equal(res.body.data.checkoutConfigId, 'config_TniFJkBEcjWygb');
   });
 
   it('does not create an order when the saved course configuration is missing', async () => {
