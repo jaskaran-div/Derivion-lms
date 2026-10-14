@@ -417,6 +417,7 @@ model Course {
   price         Decimal      @default(0) @db.Decimal(10, 2)
   discountPrice Decimal?     @db.Decimal(10, 2)
   isFree        Boolean      @default(false)
+  emiEnabled    Boolean      @default(false)
   status        CourseStatus @default(DRAFT)
   level         String       @default("Beginner")
   language      String       @default("English")

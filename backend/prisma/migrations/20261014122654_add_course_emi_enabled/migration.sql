@@ -1,0 +1,2 @@
+ALTER TABLE "courses"
+ADD COLUMN "emiEnabled" BOOLEAN NOT NULL DEFAULT false;

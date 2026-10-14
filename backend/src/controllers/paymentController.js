@@ -2,6 +2,7 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const prisma = require('../config/database');
 const { sendEmail, emailTemplates } = require('../config/email');
+const { getCheckoutConfigurationId } = require('../utils/razorpayConfig');
 
 const getRazorpayInstance = () => {
   const key_id = process.env.RAZORPAY_KEY_ID;
@@ -17,6 +18,10 @@ const createOrder = async (req, res) => {
   try {
     const { courseId } = req.body;
     const userId = req.user.id;
+
+    if (typeof courseId !== 'string' || !courseId.trim()) {
+      return res.status(400).json({ success: false, message: 'A valid course ID is required.' });
+    }
 
     const course = await prisma.course.findUnique({ where: { id: courseId, status: 'PUBLISHED' } });
     if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
@@ -38,6 +43,13 @@ const createOrder = async (req, res) => {
 
     const amount = parseFloat(course.discountPrice || course.price);
     const amountInPaise = Math.round(amount * 100);
+    const checkoutConfigId = getCheckoutConfigurationId(course.emiEnabled);
+    if (!checkoutConfigId) {
+      return res.status(503).json({
+        success: false,
+        message: 'Payment checkout configuration is not available.',
+      });
+    }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
@@ -48,6 +60,7 @@ const createOrder = async (req, res) => {
     const rzpOrder = await razorpay.orders.create({
       amount: amountInPaise,
       currency: 'INR',
+      checkout_config_id: checkoutConfigId,
       receipt: `rcpt_${Date.now()}_${userId.slice(0, 6)}`,
       notes: {
         userId,
@@ -79,6 +92,7 @@ const createOrder = async (req, res) => {
         amountInPaise,
         currency: 'INR',
         keyId: process.env.RAZORPAY_KEY_ID,
+        checkoutConfigId,
         course: { id: course.id, title: course.title, thumbnail: course.thumbnail },
         prefill: {
           name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),

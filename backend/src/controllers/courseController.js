@@ -171,8 +171,12 @@ const createCourse = async (req, res) => {
   try {
     const {
       title, description, shortDesc, categoryId, price,
-      discountPrice, isFree, level, language, tags, requirements, objectives,
+      discountPrice, isFree, emiEnabled, level, language, tags, requirements, objectives,
     } = req.body;
+
+    if (emiEnabled !== undefined && typeof emiEnabled !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'EMI eligibility must be a Boolean.' });
+    }
 
     const slug = title
       .toLowerCase()
@@ -187,6 +191,7 @@ const createCourse = async (req, res) => {
         price: parseFloat(price) || 0,
         discountPrice: discountPrice ? parseFloat(discountPrice) : null,
         isFree: isFree === true || isFree === 'true',
+        emiEnabled: emiEnabled === true,
         level: level || 'Beginner',
         language: language || 'English',
         tags: tags || [],
@@ -207,6 +212,10 @@ const updateCourse = async (req, res) => {
   try {
     const { id } = req.params;
     const data = req.body;
+
+    if (data.emiEnabled !== undefined && typeof data.emiEnabled !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'EMI eligibility must be a Boolean.' });
+    }
 
     if (data.price) data.price = parseFloat(data.price);
     if (data.discountPrice) data.discountPrice = parseFloat(data.discountPrice);
