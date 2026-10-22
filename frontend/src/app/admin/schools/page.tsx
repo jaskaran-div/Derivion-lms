@@ -376,21 +376,21 @@ export default function SchoolsManagementPage() {
           .schools-title-area { display: flex; align-items: center; gap: 1rem; }
           .schools-icon-wrap {
             width: 52px; height: 52px; border-radius: 14px;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: linear-gradient(135deg, #1d4ed8, #8b5cf6);
             display: flex; align-items: center; justify-content: center; color: white;
-            box-shadow: 0 4px 15px rgba(99,102,241,0.35);
+            box-shadow: 0 4px 15px rgba(29, 78, 216,0.35);
           }
           .schools-title { font-size: 1.6rem; font-weight: 700; color: #0f172a; margin: 0; }
           .schools-subtitle { color: #64748b; font-size: 0.875rem; margin: 0; }
           .schools-add-btn {
             display: flex; align-items: center; gap: 0.5rem;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: linear-gradient(135deg, #1d4ed8, #8b5cf6);
             color: white; border: none; padding: 0.65rem 1.25rem;
             border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 0.9rem;
-            box-shadow: 0 4px 12px rgba(99,102,241,0.35);
+            box-shadow: 0 4px 12px rgba(29, 78, 216,0.35);
             transition: transform 0.15s, box-shadow 0.15s;
           }
-          .schools-add-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.45); }
+          .schools-add-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(29, 78, 216,0.45); }
 
           .schools-stats {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -403,7 +403,7 @@ export default function SchoolsManagementPage() {
             box-shadow: 0 1px 3px rgba(0,0,0,0.04);
           }
           .stat-icon { flex-shrink: 0; }
-          .stat-blue { color: #6366f1; }
+          .stat-blue { color: #1d4ed8; }
           .stat-green { color: #10b981; }
           .stat-purple { color: #8b5cf6; }
           .stat-orange { color: #f59e0b; }
@@ -424,7 +424,7 @@ export default function SchoolsManagementPage() {
             outline: none; transition: border-color 0.2s;
             box-shadow: 0 1px 2px rgba(0,0,0,0.04);
           }
-          .schools-search-input:focus { border-color: #6366f1; }
+          .schools-search-input:focus { border-color: #1d4ed8; }
 
           .schools-loading {
             display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem;
@@ -461,7 +461,7 @@ export default function SchoolsManagementPage() {
 
           .school-card-header { display: flex; align-items: center; justify-content: space-between; }
           .school-badge {
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: linear-gradient(135deg, #1d4ed8, #8b5cf6);
             color: white; padding: 0.2rem 0.65rem; border-radius: 6px;
             font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em;
           }
@@ -502,7 +502,7 @@ export default function SchoolsManagementPage() {
           .school-status--inactive { background: rgba(239,68,68,0.1); color: #ef4444; }
           .school-manage-link {
             display: flex; align-items: center; gap: 0.2rem;
-            font-size: 0.85rem; font-weight: 600; color: #6366f1;
+            font-size: 0.85rem; font-weight: 600; color: #1d4ed8;
             text-decoration: none; transition: gap 0.15s;
           }
           .school-manage-link:hover { gap: 0.4rem; }
@@ -557,7 +557,7 @@ export default function SchoolsManagementPage() {
             box-shadow: 0 1px 2px rgba(0,0,0,0.04);
           }
           .form-group input::placeholder { color: #94a3b8; }
-          .form-group input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+          .form-group input:focus { border-color: #1d4ed8; box-shadow: 0 0 0 3px rgba(29, 78, 216,0.15); }
           .form-group input:disabled { background: #f8fafc !important; color: #94a3b8 !important; cursor: not-allowed; }
           .modal-footer {
             display: flex; justify-content: flex-end; gap: 0.75rem;
@@ -572,9 +572,9 @@ export default function SchoolsManagementPage() {
           .btn-secondary:hover { background: #f1f5f9; }
           .btn-primary {
             padding: 0.65rem 1.4rem;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: linear-gradient(135deg, #1d4ed8, #8b5cf6);
             color: white; border: none; border-radius: 10px; cursor: pointer;
-            font-size: 0.9rem; font-weight: 600; box-shadow: 0 4px 12px rgba(99,102,241,0.25);
+            font-size: 0.9rem; font-weight: 600; box-shadow: 0 4px 12px rgba(29, 78, 216,0.25);
             transition: opacity 0.15s;
           }
           .btn-primary:hover { opacity: 0.92; }

@@ -10,9 +10,9 @@ import CustomVideoPlayer from "@/components/player/CustomVideoPlayer";
 import LearnerContentProtection from "@/components/content/LearnerContentProtection";
 import CourseShareMenu from "@/components/courses/CourseShareMenu";
 import {
-  Star, Users, Clock, BookOpen, CheckCircle2, Play, FileText,
+  Users, Clock, BookOpen, CheckCircle2, Play, FileText,
   HelpCircle, Lock, ChevronDown, ChevronUp,
-  Award, Globe, ThumbsUp, ThumbsDown,
+  Award, Globe,
   Bookmark, Search, MoreVertical, MessageSquare,
   Sparkles, PlayCircle
 } from "lucide-react";
@@ -27,6 +27,8 @@ interface Content {
   s3Key?: string;
   cloudFrontUrl?: string;
   externalUrl?: string;
+  assessmentId?: string | null;
+  mimeType?: string | null;
   isCompleted?: boolean;
 }
 
@@ -81,15 +83,12 @@ export default function CourseDetailPage() {
   const [activeContent, setActiveContent] = useState<Content | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [paying, setPaying] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "notes" | "announcements" | "reviews">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "notes" | "announcements">("overview");
 
   // Dynamic lesson durations map (contentId -> durationInSeconds)
   const [durationsMap, setDurationsMap] = useState<Record<string, number>>({});
 
   // Interactions state
-  const [liked, setLiked] = useState(false);
-  const [disliked, setDisliked] = useState(false);
-  const [likesCount, setLikesCount] = useState(482);
   const [bookmarked, setBookmarked] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
 
@@ -122,6 +121,7 @@ export default function CourseDetailPage() {
     sections.forEach((section) => {
       section.contents?.forEach((c) => {
         const videoSrc = c.cloudFrontUrl || c.externalUrl;
+        if (c.type !== "VIDEO") return;
         if (videoSrc && (!c.duration || c.duration <= 0)) {
           const v = document.createElement("video");
           v.preload = "metadata";
@@ -262,7 +262,7 @@ export default function CourseDetailPage() {
           contact: prefill?.contact || (user as any)?.phone || "",
         },
         theme: {
-          color: "#4f46e5",
+          color: "#1e40af",
         },
         handler: async function (response: any) {
           try {
@@ -306,6 +306,15 @@ export default function CourseDetailPage() {
   const handleContentClick = async (content: Content) => {
     if (!content.isFree && !course?.isEnrolled && user?.role !== "ADMIN") {
       toast.error("Please enroll in this course to access this lesson.");
+      return;
+    }
+
+    if (content.type === "QUIZ") {
+      if (!content.assessmentId) {
+        toast.error("This quiz is not available yet.");
+        return;
+      }
+      router.push(`/assessments/${content.assessmentId}?content=${content.id}`);
       return;
     }
 
@@ -397,30 +406,6 @@ export default function CourseDetailPage() {
     setShowOptions(false);
   };
 
-  const handleLike = () => {
-    if (liked) {
-      setLiked(false);
-      setLikesCount((c) => c - 1);
-    } else {
-      setLiked(true);
-      setLikesCount((c) => c + 1);
-      if (disliked) setDisliked(false);
-      toast.success("Thanks for the feedback! 👍");
-    }
-  };
-
-  const handleDislike = () => {
-    if (disliked) {
-      setDisliked(false);
-    } else {
-      setDisliked(true);
-      if (liked) {
-        setLiked(false);
-        setLikesCount((c) => c - 1);
-      }
-    }
-  };
-
   const handleSaveNote = () => {
     if (!newNoteText.trim() || !activeContent) return;
     const note: Note = {
@@ -508,11 +493,6 @@ export default function CourseDetailPage() {
           <h1 className="player-title">{course.title}</h1>
           <div className="player-meta-row">
             <div className="player-meta-item">
-              <Star size={16} fill="#f59e0b" color="#f59e0b" />
-              <strong>{parseFloat(String(course.rating || 4.5)).toFixed(1)}</strong>
-              <span>({(course.totalRatings || 14115).toLocaleString()} Ratings)</span>
-            </div>
-            <div className="player-meta-item">
               <Users size={16} color="var(--gray-500)" />
               <strong>{(course.totalStudents || 321195).toLocaleString()}</strong>
               <span>Students Enrolled</span>
@@ -539,16 +519,13 @@ export default function CourseDetailPage() {
           {/* LEFT COLUMN: Custom Video Player, Actions, Tabs */}
           <div>
             {/* Custom Video Player with Custom Controls */}
-            {isPlaying && activeVideoUrl ? (
+            {isPlaying && activeVideoUrl && activeContent && (activeContent.type === "PDF" || activeContent.type === "DOCUMENT") ? (
+              <DocumentViewer content={activeContent} url={activeVideoUrl} />
+            ) : isPlaying && activeVideoUrl ? (
               <CustomVideoPlayer
                 src={activeVideoUrl}
                 title={activeContent ? activeContent.title : course.title}
                 thumbnail={course.thumbnail}
-                watermark={
-                  user?.role === "STUDENT"
-                    ? [user.firstName, user.lastName, user.email].filter(Boolean).join(" · ")
-                    : undefined
-                }
                 disablePictureInPicture={user?.role === "STUDENT"}
                 autoPlay={true}
                 onTimeUpdate={(curr) => {
@@ -590,7 +567,7 @@ export default function CourseDetailPage() {
                     style={{
                       width: "100%",
                       height: "100%",
-                      background: "linear-gradient(135deg, #1e1b4b, #312e81, #4338ca)",
+                      background: "linear-gradient(135deg, #172554, #1e3a8a, #1e40af)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -613,21 +590,6 @@ export default function CourseDetailPage() {
             <div className="player-action-bar" style={{ justifyContent: "flex-end", marginTop: 12 }}>
               <div className="player-action-group">
                 <CourseShareMenu slug={course.slug} title={course.title} />
-                <button
-                  className={`player-action-btn ${liked ? "active" : ""}`}
-                  onClick={handleLike}
-                  title="Helpful"
-                >
-                  <ThumbsUp size={16} fill={liked ? "currentColor" : "none"} />
-                  {likesCount > 0 && <span>{likesCount}</span>}
-                </button>
-                <button
-                  className={`player-action-btn ${disliked ? "active" : ""}`}
-                  onClick={handleDislike}
-                  title="Not helpful"
-                >
-                  <ThumbsDown size={16} fill={disliked ? "currentColor" : "none"} />
-                </button>
                 <button
                   className={`player-action-btn ${bookmarked ? "active" : ""}`}
                   onClick={() => {
@@ -663,12 +625,6 @@ export default function CourseDetailPage() {
                 onClick={() => setActiveTab("announcements")}
               >
                 Announcements
-              </button>
-              <button
-                className={`player-tab-item ${activeTab === "reviews" ? "active" : ""}`}
-                onClick={() => setActiveTab("reviews")}
-              >
-                Reviews
               </button>
             </div>
 
@@ -839,32 +795,6 @@ export default function CourseDetailPage() {
               </div>
             )}
 
-            {/* TAB CONTENT: Reviews */}
-            {activeTab === "reviews" && (
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "20px 24px", background: "#f8fafc", borderRadius: 14, border: "1px solid var(--gray-200)", marginBottom: 20 }}>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: 40, fontWeight: 800, color: "var(--gray-900)", lineHeight: 1 }}>
-                      {parseFloat(String(course.rating || 4.5)).toFixed(1)}
-                    </div>
-                    <div style={{ display: "flex", gap: 3, justifyContent: "center", margin: "6px 0" }}>
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Star key={s} size={15} fill="#f59e0b" color="#f59e0b" />
-                      ))}
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--gray-500)" }}>Course Rating</div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, color: "var(--gray-600)", marginBottom: 6 }}>
-                      94% of students recommend this course for practical mastery.
-                    </div>
-                    <div className="progress-bar" style={{ height: 6 }}>
-                      <div className="progress-fill" style={{ width: "94%" }} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* RIGHT COLUMN: Course Content Sidebar */}
@@ -1018,7 +948,7 @@ export default function CourseDetailPage() {
                                         ) : effectiveContentDuration && effectiveContentDuration > 0 ? (
                                           <span>{formatDuration(effectiveContentDuration)}</span>
                                         ) : (
-                                          <span>Video</span>
+                                          <span>{lessonTypeLabel(content.type)}</span>
                                         )}
                                         {content.isFree && !course.isEnrolled && (
                                           <span className="badge badge-success" style={{ fontSize: 10, padding: "1px 6px" }}>Preview</span>
@@ -1039,14 +969,14 @@ export default function CourseDetailPage() {
                                       ) : isLocked ? (
                                         <Lock size={15} color="var(--gray-400)" />
                                       ) : isActive ? (
-                                        <PlayCircle size={20} color="#7c3aed" />
+                                        <LessonTypeIcon type={content.type} size={20} color="var(--violet)" />
                                       ) : (
                                         <button
                                           onClick={(e) => toggleComplete(content.id, e)}
                                           style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
                                           title="Mark as completed"
                                         >
-                                          <PlayCircle size={18} color="var(--gray-400)" />
+                                          <LessonTypeIcon type={content.type} size={18} color="var(--gray-400)" />
                                         </button>
                                       )}
                                     </div>
@@ -1076,4 +1006,53 @@ export default function CourseDetailPage() {
       </LearnerContentProtection>
     </AppLayout>
   );
+}
+
+// PDF lessons are shown inline with the browser viewer toolbar (download / print) hidden.
+// Word / PowerPoint files cannot be previewed in the browser without a third-party service.
+function DocumentViewer({ content, url }: { content: Content; url: string }) {
+  const isPdf =
+    content.type === "PDF" ||
+    content.mimeType === "application/pdf" ||
+    /\.pdf($|\?)/i.test(url);
+  const [loaded, setLoaded] = useState(false);
+
+  if (!isPdf) {
+    return (
+      <div className="player-screen-box" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, background: "#0f172a", color: "white", textAlign: "center", padding: 24, cursor: "default" }}>
+        <div style={{ fontSize: 40 }}>📄</div>
+        <div style={{ fontWeight: 700 }}>{content.title}</div>
+        <div style={{ fontSize: 13, opacity: 0.7, maxWidth: 420 }}>
+          This document type can&apos;t be previewed here. Ask your instructor to upload it as a PDF.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: "relative", width: "100%", height: "min(80vh, 760px)", borderRadius: 18, overflow: "hidden", background: "#525659", boxShadow: "0 14px 34px -4px rgba(0,0,0,0.25)" }}>
+      {!loaded && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: "white", fontSize: 13 }}>
+          <div className="custom-player-spinner" />
+          Loading document…
+        </div>
+      )}
+      <iframe
+        key={url}
+        src={`${url}#toolbar=0&navpanes=0&view=FitH`}
+        title={content.title}
+        onLoad={() => setLoaded(true)}
+        style={{ width: "100%", height: "100%", border: 0, opacity: loaded ? 1 : 0 }}
+      />
+    </div>
+  );
+}
+
+const lessonTypeLabel = (type: string) =>
+  ({ VIDEO: "Video", PDF: "PDF document", DOCUMENT: "Document", QUIZ: "Quiz", LINK: "Link", ASSIGNMENT: "Assignment" } as Record<string, string>)[type] || "Lesson";
+
+function LessonTypeIcon({ type, size, color }: { type: string; size: number; color: string }) {
+  if (type === "PDF" || type === "DOCUMENT") return <FileText size={size} color={color} />;
+  if (type === "QUIZ") return <HelpCircle size={size} color={color} />;
+  return <PlayCircle size={size} color={color} />;
 }

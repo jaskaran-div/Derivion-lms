@@ -581,7 +581,7 @@ John,Doe,parent@example.com,9876543210,"
           }
           .val-stat--success { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.2); }
           .val-stat--error { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.2); }
-          .val-stat--total { background: rgba(99,102,241,0.08); color: #6366f1; border-color: rgba(99,102,241,0.2); }
+          .val-stat--total { background: rgba(29, 78, 216,0.08); color: #1d4ed8; border-color: rgba(29, 78, 216,0.2); }
           .val-count { font-size: 1.5rem; font-weight: 700; line-height: 1; }
           .val-label { font-size: 0.78rem; opacity: 0.8; }
 
@@ -639,14 +639,14 @@ John,Doe,parent@example.com,9876543210,"
           .btn-download-creds {
             display: flex; align-items: center; gap: 0.5rem;
             padding: 0.65rem 1.4rem;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: linear-gradient(135deg, #1d4ed8, #8b5cf6);
             color: white; border: none; border-radius: 10px; cursor: pointer;
             font-weight: 600; font-size: 0.9rem;
           }
           .creds-notice {
             display: flex; align-items: flex-start; gap: 0.6rem;
-            background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.25);
-            padding: 0.85rem 1rem; border-radius: 8px; font-size: 0.875rem; color: #6366f1;
+            background: rgba(29, 78, 216,0.08); border: 1px solid rgba(29, 78, 216,0.25);
+            padding: 0.85rem 1rem; border-radius: 8px; font-size: 0.875rem; color: #1d4ed8;
           }
           .credential-cell { font-family: monospace; font-size: 0.82rem; font-weight: 600; }
 

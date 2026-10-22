@@ -387,7 +387,7 @@ export default function AnalyticsPage() {
           .analytics-title-area { display: flex; align-items: center; gap: 1rem; }
           .analytics-icon {
             width: 50px; height: 50px; border-radius: 14px;
-            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            background: linear-gradient(135deg, #8b5cf6, #1d4ed8);
             display: flex; align-items: center; justify-content: center; color: white;
             box-shadow: 0 4px 15px rgba(139,92,246,0.35);
           }
@@ -403,8 +403,8 @@ export default function AnalyticsPage() {
           .btn-refresh { background: none; color: var(--text-primary); }
           .btn-refresh:hover { background: var(--hover); }
           .btn-export {
-            background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border: none;
-            box-shadow: 0 4px 12px rgba(99,102,241,0.3);
+            background: linear-gradient(135deg, #8b5cf6, #1d4ed8); color: white; border: none;
+            box-shadow: 0 4px 12px rgba(29, 78, 216,0.3);
           }
           .btn-export:disabled { opacity: 0.65; cursor: not-allowed; }
 
@@ -454,7 +454,7 @@ export default function AnalyticsPage() {
             display: flex; align-items: center; justify-content: center;
             flex-shrink: 0; color: white;
           }
-          .kpi-blue .kpi-icon { background: linear-gradient(135deg, #6366f1, #4f46e5); }
+          .kpi-blue .kpi-icon { background: linear-gradient(135deg, #1d4ed8, #1e40af); }
           .kpi-purple .kpi-icon { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
           .kpi-green .kpi-icon { background: linear-gradient(135deg, #10b981, #059669); }
           .kpi-orange .kpi-icon { background: linear-gradient(135deg, #f59e0b, #d97706); }
@@ -517,7 +517,7 @@ export default function AnalyticsPage() {
           }
           .month-bar-fill {
             width: 100%; border-radius: 6px;
-            background: linear-gradient(180deg, #8b5cf6, #6366f1);
+            background: linear-gradient(180deg, #8b5cf6, #1d4ed8);
             transition: height 0.3s ease; min-height: 4px;
           }
           .month-label { font-size: 0.72rem; color: var(--text-secondary); white-space: nowrap; }
@@ -557,7 +557,7 @@ export default function AnalyticsPage() {
           .student-cell { display: flex; align-items: center; gap: 0.65rem; }
           .student-avatar {
             width: 32px; height: 32px; border-radius: 50%;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: linear-gradient(135deg, #1d4ed8, #8b5cf6);
             color: white; display: flex; align-items: center; justify-content: center;
             font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
           }

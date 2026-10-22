@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Menu, Search, X, ChevronRight, CheckCheck, CheckCircle2, AlertTriangle, AlertCircle, Info, Sparkles } from "lucide-react";
+import { Bell, Menu, Search, X, ChevronRight, ChevronDown, Settings, LogOut, CheckCheck, CheckCircle2, AlertTriangle, AlertCircle, Info, Sparkles } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { usersAPI } from "@/lib/api";
 import Link from "next/link";
@@ -91,26 +91,25 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
     <header className="app-header">
       {/* Mobile menu toggle */}
       <button
-        className="btn btn-ghost btn-icon"
-        style={{ display: "none" }}
+        className="header-icon-btn mobile-menu-btn"
         onClick={onMobileMenuToggle}
-        id="mobile-menu-btn"
+        aria-label="Open menu"
       >
         <Menu size={20} />
       </button>
 
       {/* Page title or search */}
       {title ? (
-        <h1 style={{ fontSize: 16, fontWeight: 700, color: "var(--gray-900)" }}>
+        <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--gray-900)" }}>
           {title}
         </h1>
       ) : (
-        <form onSubmit={handleSearch} style={{ flex: 1, maxWidth: 420 }}>
+        <form onSubmit={handleSearch} className="header-search" style={{ flex: 1, maxWidth: 380 }}>
           <div className="search-bar">
-            <Search size={16} color="var(--gray-400)" />
+            <Search size={17} color="var(--gray-500)" />
             <input
               type="text"
-              placeholder="Search courses..."
+              placeholder="Search here..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -123,46 +122,30 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
       {/* Notifications */}
       <div ref={notifRef} style={{ position: "relative" }}>
         <button
-          className="btn btn-ghost btn-icon"
+          className={`header-icon-btn ${showNotifications ? "active" : ""}`}
           onClick={() => {
             setShowNotifications(!showNotifications);
             setShowUserMenu(false);
           }}
-          style={{
-            position: "relative",
-            width: 40,
-            height: 40,
-            borderRadius: "50%",
-            background: showNotifications ? "var(--primary-50)" : "transparent",
-            color: showNotifications ? "var(--primary)" : "var(--gray-600)",
-            transition: "all 0.15s ease",
-          }}
           title="Notifications"
+          aria-label="Notifications"
         >
           <Bell size={19} />
           {unreadCount > 0 && (
             <span
               style={{
                 position: "absolute",
-                top: 5,
-                right: 5,
-                minWidth: 18,
-                height: 18,
-                padding: "0 4px",
+                top: 6,
+                right: 6,
+                minWidth: unreadCount > 9 ? 18 : 10,
+                height: 10,
+                padding: unreadCount > 9 ? "0 3px" : 0,
                 borderRadius: 9,
-                background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                color: "white",
-                fontSize: 10,
-                fontWeight: 700,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                background: "#ef4444",
                 border: "2px solid white",
-                boxShadow: "0 2px 4px rgba(239, 68, 68, 0.3)",
               }}
-            >
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
+              title={`${unreadCount} unread`}
+            />
           )}
         </button>
 
@@ -498,78 +481,53 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
       {/* User menu */}
       <div ref={userRef} style={{ position: "relative" }}>
         <button
+          className="header-user-btn"
           onClick={() => {
             setShowUserMenu(!showUserMenu);
             setShowNotifications(false);
           }}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "6px 10px",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--border-color)",
-            background: "white",
-            cursor: "pointer",
-            transition: "background 0.15s",
-          }}
-          className="btn btn-secondary"
         >
-          <div className="avatar avatar-sm">{getInitials()}</div>
-          <span
-            style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-700)" }}
-          >
-            {user?.firstName}
-          </span>
+          {user?.avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.avatar} alt="" className="avatar" />
+          ) : (
+            <div className="avatar">{getInitials()}</div>
+          )}
+          <div className="header-user-meta" style={{ minWidth: 0, maxWidth: 200 }}>
+            <div className="header-user-name truncate">{user?.firstName} {user?.lastName}</div>
+            <div className="header-user-email truncate">{user?.email}</div>
+          </div>
+          <ChevronDown size={16} color="var(--gray-500)" />
         </button>
 
         {showUserMenu && (
-          <div
-            style={{
-              position: "absolute",
-              top: "calc(100% + 8px)",
-              right: 0,
-              width: 200,
-              background: "white",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-xl)",
-              zIndex: 200,
-              overflow: "hidden",
-              animation: "slideUp 0.15s ease",
-            }}
-          >
-            <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-color)" }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>
+          <div className="header-dropdown" style={{ width: 230 }}>
+            <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border-color)" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--gray-900)" }}>
                 {user?.firstName} {user?.lastName}
               </div>
-              <div style={{ fontSize: 12, color: "var(--gray-400)", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "var(--gray-500)", marginTop: 2, wordBreak: "break-all" }}>
                 {user?.email}
               </div>
             </div>
-            <div style={{ padding: "8px" }}>
+            <div style={{ padding: 8 }}>
               <Link
-                href="/settings"
+                href={user?.role === "ADMIN" ? "/admin/settings" : "/settings"}
                 onClick={() => setShowUserMenu(false)}
-                className="sidebar-nav-item"
-                style={{ padding: "8px 10px", marginBottom: 0 }}
+                className="sidebar-nav-item plain"
+                style={{ padding: "9px 10px", marginBottom: 0 }}
               >
-                Settings
+                <Settings size={16} /> Settings
               </Link>
               <button
                 onClick={() => {
                   useAuthStore.getState().logout();
                   router.push("/login");
                 }}
-                className="sidebar-nav-item"
-                style={{
-                  width: "100%",
-                  padding: "8px 10px",
-                  color: "var(--danger)",
-                  marginBottom: 0,
-                }}
+                className="sidebar-nav-item plain"
+                style={{ width: "100%", padding: "9px 10px", color: "var(--danger)", marginBottom: 0 }}
               >
-                Logout
+                <LogOut size={16} /> Logout
               </button>
             </div>
           </div>

@@ -32,6 +32,8 @@ import {
   Upload,
   ScrollText,
   TrendingUp,
+  Video,
+  HelpCircle,
 } from "lucide-react";
 
 interface NavItem {
@@ -66,6 +68,11 @@ const adminNav: NavItem[] = [
     ],
   },
   {
+    label: "Quizzes",
+    icon: <HelpCircle size={18} />,
+    href: "/admin/quizzes",
+  },
+  {
     label: "Users",
     icon: <Users size={18} />,
     children: [
@@ -87,6 +94,11 @@ const adminNav: NavItem[] = [
     ],
   },
   {
+    label: "Mentors",
+    icon: <Video size={18} />,
+    href: "/admin/mentors",
+  },
+  {
     label: "Notifications",
     icon: <Bell size={18} />,
     href: "/admin/notifications",
@@ -95,11 +107,6 @@ const adminNav: NavItem[] = [
     label: "Support Chat",
     icon: <MessageSquare size={18} />,
     href: "/admin/support",
-  },
-  {
-    label: "Settings",
-    icon: <Settings size={18} />,
-    href: "/admin/settings",
   },
 ];
 
@@ -118,6 +125,11 @@ const studentNav: NavItem[] = [
     label: "Browse Courses",
     icon: <Search size={18} />,
     href: "/courses",
+  },
+  {
+    label: "Mentors",
+    icon: <Video size={18} />,
+    href: "/mentors",
   },
   {
     label: "Certificates",
@@ -139,11 +151,6 @@ const studentNav: NavItem[] = [
     icon: <CreditCard size={18} />,
     href: "/payments",
   },
-  {
-    label: "Settings",
-    icon: <Settings size={18} />,
-    href: "/settings",
-  },
 ];
 
 const teacherNav: NavItem[] = [
@@ -161,6 +168,11 @@ const teacherNav: NavItem[] = [
     ],
   },
   {
+    label: "Mentors",
+    icon: <Video size={18} />,
+    href: "/teacher/mentors",
+  },
+  {
     label: "Notifications",
     icon: <Bell size={18} />,
     href: "/teacher/notifications",
@@ -169,11 +181,6 @@ const teacherNav: NavItem[] = [
     label: "Support Chat",
     icon: <MessageSquare size={18} />,
     href: "/teacher/support",
-  },
-  {
-    label: "Settings",
-    icon: <Settings size={18} />,
-    href: "/settings",
   },
 ];
 
@@ -185,10 +192,11 @@ interface SidebarProps {
 export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, isAdmin, isTeacher } = useAuthStore();
+  const { logout, isAdmin, isTeacher } = useAuthStore();
   const [openDropdowns, setOpenDropdowns] = useState<Set<string>>(new Set());
 
   const nav = isAdmin() ? adminNav : isTeacher() ? teacherNav : studentNav;
+  const isStudentRole = !isAdmin() && !isTeacher();
 
   // Auto-open dropdown if current path matches a child
   useEffect(() => {
@@ -216,24 +224,22 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
     router.push("/login");
   };
 
-  const getInitials = () => {
-    if (!user) return "U";
-    return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
-  };
+  const isActive = (href: string) =>
+    pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
+  const settingsHref = isAdmin() ? "/admin/settings" : "/settings";
 
   return (
-    <aside
-      className={`app-sidebar ${mobileOpen ? "open" : ""}`}
-      style={{ zIndex: 100 }}
-    >
+    <aside className={`app-sidebar ${mobileOpen ? "open" : ""}`}>
       {/* Logo */}
       <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">🎓</div>
-        <div>
+        <div className="sidebar-logo-icon">
+          <GraduationCap size={22} />
+        </div>
+        <div style={{ minWidth: 0 }}>
           <div className="sidebar-logo-text">Derivion</div>
-          <div className="sidebar-logo-badge">
-            {isAdmin() ? "Admin" : isTeacher() ? "Teacher" : "Learning"}
-          </div>
+          {!isStudentRole && (
+            <div className="sidebar-logo-badge">{isAdmin() ? "Admin" : "Teacher"}</div>
+          )}
         </div>
       </div>
 
@@ -241,68 +247,52 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
       <nav className="sidebar-nav">
         <div className="sidebar-section-label">Menu</div>
 
-        {nav.map((item) => (
-          <div key={item.label}>
-            {item.href ? (
-              <Link href={item.href} onClick={onClose}>
-                <div
-                  className={`sidebar-nav-item ${
-                    pathname === item.href ||
-                    (item.href !== "/" && pathname.startsWith(item.href))
-                      ? "active"
-                      : ""
-                  }`}
-                >
-                  <span className="sidebar-nav-icon">{item.icon}</span>
-                  <span>{item.label}</span>
-                  {item.badge && (
-                    <span className="badge">{item.badge}</span>
-                  )}
-                </div>
-              </Link>
-            ) : (
-              <>
-                <div
-                  className={`sidebar-nav-item sidebar-dropdown-trigger ${
-                    openDropdowns.has(item.label) ? "open" : ""
-                  }`}
-                  onClick={() => toggleDropdown(item.label)}
-                >
-                  <span className="sidebar-nav-icon">{item.icon}</span>
-                  <span>{item.label}</span>
-                  <ChevronDown size={14} className="chevron" />
-                </div>
+        {nav.map((item) => {
+          const childActive = item.children?.some((c) => isActive(c.href));
+          return (
+            <div key={item.label}>
+              {item.href ? (
+                <Link href={item.href} onClick={onClose}>
+                  <div className={`sidebar-nav-item ${isActive(item.href) ? "active" : ""}`}>
+                    <span className="sidebar-nav-icon">{item.icon}</span>
+                    <span>{item.label}</span>
+                    {item.badge && <span className="badge">{item.badge}</span>}
+                  </div>
+                </Link>
+              ) : (
+                <>
+                  <div
+                    className={`sidebar-nav-item sidebar-dropdown-trigger ${openDropdowns.has(item.label) ? "open" : ""} ${childActive ? "has-active" : ""}`}
+                    onClick={() => toggleDropdown(item.label)}
+                  >
+                    <span className="sidebar-nav-icon">{item.icon}</span>
+                    <span>{item.label}</span>
+                    <ChevronDown size={14} className="chevron" />
+                  </div>
 
-                <div
-                  className={`sidebar-dropdown-menu ${
-                    openDropdowns.has(item.label) ? "open" : ""
-                  }`}
-                >
-                  {item.children?.map((child) => (
-                    <Link href={child.href} key={child.href} onClick={onClose}>
-                      <div
-                        className={`sidebar-dropdown-item ${
-                          pathname === child.href ? "active" : ""
-                        }`}
-                      >
-                        {child.icon}
-                        {child.label}
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        ))}
+                  <div className={`sidebar-dropdown-menu ${openDropdowns.has(item.label) ? "open" : ""}`}>
+                    {item.children?.map((child) => (
+                      <Link href={child.href} key={child.href} onClick={onClose}>
+                        <div className={`sidebar-dropdown-item ${pathname === child.href ? "active" : ""}`}>
+                          {child.icon}
+                          {child.label}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
 
         {/* Switch Portal (admin can go to student view) */}
         {isAdmin() && (
           <>
-            <div className="sidebar-section-label" style={{ marginTop: 12 }}>
+            <div className="sidebar-section-label" style={{ marginTop: 8 }}>
               Portals
             </div>
-            <Link href="/courses">
+            <Link href="/courses" onClick={onClose}>
               <div className="sidebar-nav-item">
                 <span className="sidebar-nav-icon">
                   <Home size={18} />
@@ -314,43 +304,17 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
         )}
       </nav>
 
-      {/* User footer */}
+      {/* Footer: settings & logout */}
       <div className="sidebar-footer">
-        <div className="sidebar-user">
-          <div className="avatar">{getInitials()}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--gray-800)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {user?.firstName} {user?.lastName}
-            </div>
-            <div
-              style={{
-                fontSize: 11,
-                color: "var(--gray-400)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {user?.email}
-            </div>
+        <Link href={settingsHref} onClick={onClose}>
+          <div className={`sidebar-nav-item plain ${isActive(settingsHref) ? "active" : ""}`}>
+            <span className="sidebar-nav-icon"><Settings size={18} /></span>
+            <span>Settings</span>
           </div>
-          <button
-            className="btn btn-ghost btn-icon"
-            onClick={handleLogout}
-            title="Logout"
-            style={{ flexShrink: 0 }}
-          >
-            <LogOut size={16} color="var(--gray-500)" />
-          </button>
+        </Link>
+        <div className="sidebar-nav-item plain" onClick={handleLogout} role="button">
+          <span className="sidebar-nav-icon"><LogOut size={18} /></span>
+          <span>Logout</span>
         </div>
       </div>
     </aside>

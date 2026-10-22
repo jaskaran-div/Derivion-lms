@@ -30,16 +30,16 @@ export default function RootLayout({
           toastOptions={{
             duration: 4000,
             style: {
-              fontFamily: "Inter, sans-serif",
+              fontFamily: "Outfit, sans-serif",
               fontSize: "14px",
-              borderRadius: "10px",
+              borderRadius: "14px",
               boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
             },
             success: {
-              iconTheme: { primary: "#10b981", secondary: "white" },
+              iconTheme: { primary: "#16a34a", secondary: "white" },
             },
             error: {
-              iconTheme: { primary: "#ef4444", secondary: "white" },
+              iconTheme: { primary: "#e5484d", secondary: "white" },
             },
           }}
         />

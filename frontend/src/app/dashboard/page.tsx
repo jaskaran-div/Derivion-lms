@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { usersAPI } from "@/lib/api";
+import { mentorAPI, usersAPI } from "@/lib/api";
 import Link from "next/link";
-import { BookOpen, Award, Clock, TrendingUp, Play, ChevronRight, Star } from "lucide-react";
+import {
+  BookOpen, Award, TrendingUp, CheckCircle2, ArrowUpRight, ChevronRight, Compass, Video, Bell,
+} from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 
 interface Enrollment {
@@ -17,11 +19,20 @@ interface Enrollment {
     title: string;
     slug: string;
     thumbnail?: string;
+    shortDesc?: string;
     category: { name: string };
     totalDuration: number;
     totalLessons: number;
     _count: { sections: number };
   };
+}
+
+interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  isRead: boolean;
 }
 
 interface DashboardData {
@@ -32,217 +43,74 @@ interface DashboardData {
     inProgressCourses: number;
   };
   enrollments: Enrollment[];
-  notifications: any[];
-  recentProgress: any[];
+  notifications: Notification[];
 }
+
+interface MentorSession {
+  id: string;
+  title: string;
+  mentorName: string;
+  startTime: string;
+  meetingLink?: string | null;
+  status: "LIVE" | "UPCOMING" | "PAST";
+  course?: { title: string };
+}
+
+const TILE_COLORS = ["#16a34a", "#6d3df5", "#111318", "#1d4ed8", "#f97316", "#0891b2"];
+
+const pct = (e: Enrollment) => Math.round(parseFloat(String(e.progressPercent)) || 0);
+
+const timeLabel = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+const dayLabel = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
 export default function StudentDashboardPage() {
   const { user } = useAuthStore();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [sessions, setSessions] = useState<MentorSession[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     usersAPI.getStudentDashboard().then((res) => {
       setData(res.data.data);
     }).finally(() => setLoading(false));
+    mentorAPI.list().then((res) => {
+      const d = res.data.data;
+      setSessions([...d.live, ...d.upcoming].slice(0, 3));
+    }).catch(() => {});
   }, []);
-
-  const formatDuration = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
-  };
 
   if (loading) {
     return (
       <AppLayout>
-        <div className="stats-grid">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="stat-card" style={{ height: 120 }}>
-              <div className="skeleton" style={{ height: 20, width: "60%", marginBottom: 12 }} />
-              <div className="skeleton" style={{ height: 36, width: "40%" }} />
-            </div>
-          ))}
+        <div className="skeleton" style={{ height: 36, width: 240, marginBottom: 24 }} />
+        <div className="dash-top">
+          <div className="skeleton" style={{ height: 260, borderRadius: 24 }} />
+          <div className="stats-grid">
+            {[1, 2, 3, 4].map((i) => <div key={i} className="skeleton" style={{ height: 120, borderRadius: 18 }} />)}
+          </div>
         </div>
       </AppLayout>
     );
   }
 
-  const inProgressEnrollments = data?.enrollments.filter(
-    (e) => e.status === "ACTIVE" && parseFloat(String(e.progressPercent)) > 0
-  ) || [];
-  const completedEnrollments = data?.enrollments.filter(
-    (e) => e.status === "COMPLETED"
-  ) || [];
-  const newEnrollments = data?.enrollments.filter(
-    (e) => e.status === "ACTIVE" && parseFloat(String(e.progressPercent)) === 0
-  ) || [];
+  const enrollments = data?.enrollments || [];
+  // The course to resume: most progressed active course, else the newest enrollment
+  const current =
+    [...enrollments].filter((e) => e.status === "ACTIVE" && pct(e) > 0).sort((a, b) => pct(b) - pct(a))[0] ||
+    enrollments.find((e) => e.status === "ACTIVE") ||
+    enrollments[0];
 
   return (
     <AppLayout>
-      {/* Welcome Banner */}
-      <div
-        style={{
-          background: "linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 60%, var(--secondary-dark) 100%)",
-          borderRadius: "var(--radius-xl)",
-          padding: "28px 32px",
-          color: "white",
-          marginBottom: 24,
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            right: -40,
-            top: -40,
-            width: 200,
-            height: 200,
-            borderRadius: "50%",
-            background: "rgba(255,255,255,0.06)",
-          }}
-        />
-        <div style={{ position: "relative", zIndex: 1 }}>
-          <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>
-            Welcome back, {user?.firstName}! 👋
-          </div>
-          <div style={{ fontSize: 15, opacity: 0.85, marginBottom: 16 }}>
-            Continue your learning journey and keep up the great progress!
-          </div>
-          <Link href="/courses">
-            <button
-              className="btn"
-              style={{
-                background: "rgba(255,255,255,0.2)",
-                color: "white",
-                border: "1px solid rgba(255,255,255,0.3)",
-                backdropFilter: "blur(10px)",
-              }}
-            >
-              Browse Courses →
-            </button>
-          </Link>
-        </div>
+      <div className="page-header">
+        <h1 className="page-title">
+          Hello, <strong style={{ fontWeight: 600 }}>{user?.firstName}</strong>
+        </h1>
       </div>
 
-      {/* Stats */}
-      <div className="stats-grid">
-        <div className="stat-card blue">
-          <div className="stat-icon blue"><BookOpen size={22} /></div>
-          <div className="stat-value">{data?.stats.enrolledCourses || 0}</div>
-          <div className="stat-label">Enrolled Courses</div>
-        </div>
-        <div className="stat-card yellow">
-          <div className="stat-icon yellow"><TrendingUp size={22} /></div>
-          <div className="stat-value">{data?.stats.inProgressCourses || 0}</div>
-          <div className="stat-label">In Progress</div>
-        </div>
-        <div className="stat-card green">
-          <div className="stat-icon green"><Star size={22} /></div>
-          <div className="stat-value">{data?.stats.completedCourses || 0}</div>
-          <div className="stat-label">Completed</div>
-        </div>
-        <div className="stat-card purple">
-          <div className="stat-icon purple"><Award size={22} /></div>
-          <div className="stat-value">{data?.stats.certificates || 0}</div>
-          <div className="stat-label">Certificates</div>
-        </div>
-      </div>
-
-      {/* Continue Learning */}
-      {inProgressEnrollments.length > 0 && (
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--gray-900)" }}>
-              Continue Learning
-            </h2>
-            <Link href="/my-courses" style={{ fontSize: 13, color: "var(--primary)", fontWeight: 500 }}>
-              View all →
-            </Link>
-          </div>
-          <div className="grid-courses">
-            {inProgressEnrollments.slice(0, 3).map((enrollment) => (
-              <Link href={`/courses/${enrollment.course.slug}`} key={enrollment.id}>
-                <div className="course-card">
-                  <div
-                    className="course-card-image"
-                    style={{
-                      background: enrollment.course.thumbnail
-                        ? `url(${enrollment.course.thumbnail}) center/cover`
-                        : "linear-gradient(135deg, var(--primary-100), var(--primary-50))",
-                    }}
-                  >
-                    {!enrollment.course.thumbnail && "📚"}
-                  </div>
-                  <div className="course-card-body">
-                    <div className="course-card-category">{enrollment.course.category?.name}</div>
-                    <div className="course-card-title">{enrollment.course.title}</div>
-
-                    {/* Progress */}
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12, color: "var(--gray-500)" }}>
-                        <span>Progress</span>
-                        <span style={{ fontWeight: 600, color: "var(--primary)" }}>
-                          {Math.round(parseFloat(String(enrollment.progressPercent)))}%
-                        </span>
-                      </div>
-                      <div className="progress-bar">
-                        <div
-                          className="progress-fill"
-                          style={{ width: `${parseFloat(String(enrollment.progressPercent))}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <button className="btn btn-primary w-full btn-sm" style={{ justifyContent: "center" }}>
-                      <Play size={14} /> Continue Learning
-                    </button>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Newly Enrolled */}
-      {newEnrollments.length > 0 && (
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--gray-900)", marginBottom: 16 }}>
-            Start These Courses 🆕
-          </h2>
-          <div className="grid-courses">
-            {newEnrollments.slice(0, 3).map((enrollment) => (
-              <Link href={`/courses/${enrollment.course.slug}`} key={enrollment.id}>
-                <div className="course-card">
-                  <div
-                    className="course-card-image"
-                    style={{
-                      background: enrollment.course.thumbnail
-                        ? `url(${enrollment.course.thumbnail}) center/cover`
-                        : "linear-gradient(135deg, var(--primary-100), var(--primary-50))",
-                    }}
-                  >
-                    {!enrollment.course.thumbnail && "📚"}
-                  </div>
-                  <div className="course-card-body">
-                    <div className="course-card-category">{enrollment.course.category?.name}</div>
-                    <div className="course-card-title">{enrollment.course.title}</div>
-                    <button className="btn btn-outline w-full btn-sm" style={{ justifyContent: "center" }}>
-                      Start Course →
-                    </button>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {(data?.enrollments.length || 0) === 0 && (
+      {enrollments.length === 0 ? (
         <div className="card">
           <div className="empty-state" style={{ padding: "64px 24px" }}>
             <div className="empty-state-icon">🎓</div>
@@ -251,58 +119,224 @@ export default function StudentDashboardPage() {
               Explore our library of courses and start learning something new today!
             </div>
             <Link href="/courses">
-              <button className="btn btn-primary btn-lg">Browse Courses →</button>
+              <button className="btn btn-dark btn-lg">Browse Courses</button>
             </Link>
           </div>
         </div>
-      )}
-
-      {/* Notifications */}
-      {(data?.notifications.length || 0) > 0 && (
-        <div style={{ marginTop: 28 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--gray-900)", marginBottom: 16 }}>
-            Recent Notifications
-          </h2>
-          <div className="card">
-            {data?.notifications.map((notif, i) => (
-              <div
-                key={notif.id}
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 12,
-                  padding: "14px 20px",
-                  borderBottom: i < (data.notifications.length - 1) ? "1px solid var(--gray-100)" : "none",
-                  background: notif.isRead ? "white" : "var(--primary-50)",
-                }}
-              >
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: "50%",
-                    background: notif.type === "SUCCESS" ? "var(--success-light)" : "var(--primary-50)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 16,
-                    flexShrink: 0,
-                  }}
-                >
-                  {notif.type === "SUCCESS" ? "✅" : "🔔"}
+      ) : (
+        <>
+        <div className="dash-top">
+          {/* LEFT COLUMN */}
+          <div className="dash-col">
+            {current && (
+              <div className="hero-course-card">
+                <div className="hero-course-inner">
+                  {current.course.thumbnail ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={current.course.thumbnail} alt="" className="hero-course-thumb" />
+                  ) : (
+                    <div className="hero-course-thumb">📚</div>
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 16, color: "var(--gray-900)", lineHeight: 1.3 }}>
+                      {current.course.title}
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--gray-600)", marginTop: 4 }}>
+                      {current.course.category?.name}
+                      {current.course.totalLessons ? ` · ${current.course.totalLessons} lessons` : ""}
+                    </div>
+                  </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--gray-800)" }}>
-                    {notif.title}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--gray-700)", marginBottom: 6 }}>
+                    <span>Progress</span>
+                    <span>{pct(current)}%</span>
                   </div>
-                  <div style={{ fontSize: 13, color: "var(--gray-500)", marginTop: 2 }}>
-                    {notif.message}
+                  <div className="progress-bar" style={{ background: "rgba(255,255,255,0.7)" }}>
+                    <div className="progress-fill" style={{ width: `${pct(current)}%` }} />
                   </div>
                 </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+                  {[
+                    ["Lessons", String(current.course.totalLessons || 0)],
+                    ["Length", current.course.totalDuration ? `${Math.floor(current.course.totalDuration / 3600)}h ${Math.round((current.course.totalDuration % 3600) / 60)}m` : "—"],
+                    ["Enrolled", new Date(current.enrolledAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ background: "rgba(255,255,255,0.6)", borderRadius: 12, padding: "10px 12px" }}>
+                      <div style={{ fontSize: 11, color: "var(--gray-600)" }}>{label}</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: "var(--gray-900)" }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+                <Link href={`/courses/${current.course.slug}`}>
+                  <button className="btn btn-pill-white">
+                    {pct(current) > 0 ? "Continue Learning" : "Start Learning"}
+                  </button>
+                </Link>
+                <Link href="/courses">
+                  <button className="btn btn-pill-violet">
+                    <Compass size={18} /> Browse Courses <ChevronRight size={16} />
+                  </button>
+                </Link>
               </div>
-            ))}
+            )}
+
+          </div>
+
+          {/* RIGHT COLUMN */}
+          <div className="dash-col">
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon blue"><BookOpen size={20} /></div>
+                <div className="stat-label">Enrolled<br />Courses</div>
+                <div className="stat-value">{data?.stats.enrolledCourses || 0}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon yellow"><TrendingUp size={20} /></div>
+                <div className="stat-label">In<br />Progress</div>
+                <div className="stat-value">{data?.stats.inProgressCourses || 0}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon green"><CheckCircle2 size={20} /></div>
+                <div className="stat-label">Completed<br />Courses</div>
+                <div className="stat-value">{data?.stats.completedCourses || 0}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon purple"><Award size={20} /></div>
+                <div className="stat-label">Earned<br />Certificates</div>
+                <div className="stat-value">{data?.stats.certificates || 0}</div>
+              </div>
+            </div>
+
+            {/* My Schedule — mentor live sessions */}
+            <div className="card">
+              <div className="card-header" style={{ borderBottom: "none", paddingBottom: 8 }}>
+                <span className="card-title" style={{ fontSize: 20, fontWeight: 500 }}>My Schedule</span>
+                <Link href="/mentors" style={{ fontSize: 14, fontWeight: 500, color: "var(--gray-800)", display: "flex", alignItems: "center", gap: 4 }}>
+                  View all <ChevronRight size={16} />
+                </Link>
+              </div>
+              <div style={{ padding: "0 24px 24px" }}>
+                {sessions.length === 0 ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--gray-500)", fontSize: 14, padding: "8px 0" }}>
+                    <Video size={18} /> No live or upcoming mentor sessions right now.
+                  </div>
+                ) : (
+                  <div className="schedule-grid">
+                    {sessions.map((s) => {
+                      const live = s.status === "LIVE";
+                      return (
+                        <div key={s.id} className={`schedule-card ${live ? "dark" : ""}`}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, opacity: live ? 0.85 : 1, color: live ? "#fff" : "var(--gray-700)" }}>
+                            {live ? <span className="live-pill">Live Now</span> : null}
+                            <span>{live ? `Started ${timeLabel(s.startTime)}` : `${dayLabel(s.startTime)} · ${timeLabel(s.startTime)}`}</span>
+                          </div>
+                          <div style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.3 }}>{s.title}</div>
+                          {s.course && (
+                            <div style={{ fontSize: 13, color: live ? "rgba(255,255,255,0.65)" : "var(--gray-500)" }}>{s.course.title}</div>
+                          )}
+                          <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                              <div className="avatar avatar-sm">{s.mentorName.charAt(0).toUpperCase()}</div>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 11, color: live ? "rgba(255,255,255,0.6)" : "var(--gray-500)" }}>Mentor</div>
+                                <div className="truncate" style={{ fontSize: 13, fontWeight: 500 }}>{s.mentorName}</div>
+                              </div>
+                            </div>
+                            {live && s.meetingLink && (
+                              <a href={s.meetingLink} target="_blank" rel="noopener noreferrer">
+                                <button className="btn btn-sm" style={{ background: "#fff", color: "var(--gray-900)", borderRadius: 999 }}>
+                                  Join <ChevronRight size={14} />
+                                </button>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
+
+        <div className={`dash-row ${(data?.notifications.length || 0) > 0 ? "equal" : "single"}`}>
+        {/* Course tracker */}
+        <div className="card">
+          <div className="card-header" style={{ borderBottom: "none", paddingBottom: 4 }}>
+            <span className="card-title" style={{ fontSize: 20, fontWeight: 500 }}>Course Tracker</span>
+            <Link href="/my-courses" className="round-link-btn" aria-label="All my courses">
+              <ArrowUpRight size={18} />
+            </Link>
+          </div>
+          <div style={{ padding: "0 24px 12px" }}>
+            {enrollments.slice(0, 5).map((e, i) => {
+              const p = pct(e);
+              const done = e.status === "COMPLETED" || p >= 100;
+              return (
+                <Link href={`/courses/${e.course.slug}`} key={e.id} className="list-row">
+                  {e.course.thumbnail ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={e.course.thumbnail} alt="" className="thumb-tile" />
+                  ) : (
+                    <div className="thumb-tile" style={{ background: TILE_COLORS[i % TILE_COLORS.length] }}>
+                      <span style={{ fontSize: 16 }}>{e.course.title.split(/s+/).filter((w) => /^[A-Za-z0-9]/.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("")}</span>
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="truncate" style={{ fontWeight: 600, fontSize: 14, color: "var(--gray-900)" }}>
+                      {e.course.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--gray-500)" }}>{e.course.category?.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--primary)", marginTop: 2 }}>{p}% complete</div>
+                  </div>
+                  {done ? (
+                    <span className="badge badge-success badge-dot">Completed</span>
+                  ) : p > 0 ? (
+                    <span className="badge badge-warning badge-dot">In Progress</span>
+                  ) : (
+                    <span className="badge badge-gray badge-dot">Not Started</span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+        {/* Notifications */}
+        {(data?.notifications.length || 0) > 0 && (
+          <div className="card">
+            <div className="card-header" style={{ borderBottom: "none", paddingBottom: 4 }}>
+              <span className="card-title" style={{ fontSize: 20, fontWeight: 500 }}>Recent Notifications</span>
+            </div>
+            <div style={{ padding: "0 24px 12px" }}>
+              {data?.notifications.map((notif) => (
+                <div key={notif.id} className="list-row" style={{ alignItems: "flex-start" }}>
+                  <div
+                    style={{
+                      width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                      border: "1px solid var(--gray-200)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: notif.type === "SUCCESS" ? "var(--success)" : "var(--primary)",
+                    }}
+                  >
+                    {notif.type === "SUCCESS" ? <CheckCircle2 size={17} /> : <Bell size={17} />}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--gray-900)" }}>
+                      {notif.title}
+                      {!notif.isRead && <span className="badge badge-blue" style={{ marginLeft: 8, fontSize: 10 }}>New</span>}
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--gray-500)", marginTop: 2 }}>{notif.message}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        </div>
+        </>
       )}
     </AppLayout>
   );

@@ -49,6 +49,28 @@ export default function AdminUsersPage() {
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
+  // Summary strip: totals per role/status from the same users endpoint
+  const [counts, setCounts] = useState<{ students: number; teachers: number; inactive: number } | null>(null);
+  useEffect(() => {
+    const totalOf = (params: object) => usersAPI.getAll({ ...params, limit: 1 }).then((r) => r.data.data.pagination.total as number);
+    Promise.all([totalOf({ role: "STUDENT" }), totalOf({ role: "TEACHER" }), totalOf({ isActive: "false" })])
+      .then(([students, teachers, inactive]) => setCounts({ students, teachers, inactive }))
+      .catch(() => {});
+  }, []);
+
+  const timeAgo = (dateStr?: string) => {
+    if (!dateStr) return "Never";
+    const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins} minute${mins > 1 ? "s" : ""} ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days === 1) return "Yesterday";
+    if (days < 30) return `${days} days ago`;
+    return formatDate(dateStr);
+  };
+
   const handleToggleActive = async (id: string, currentStatus: boolean) => {
     try {
       await usersAPI.update(id, { isActive: !currentStatus });
@@ -70,17 +92,18 @@ export default function AdminUsersPage() {
     }
   };
 
-  const formatDate = (dateStr?: string) => {
+  function formatDate(dateStr?: string) {
     if (!dateStr) return "Never";
     return new Date(dateStr).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-  };
+  }
 
   return (
     <AppLayout requiredRole="ADMIN">
-      <div className="page-header">
+      <div className="panel">
+      <div className="panel-head">
         <div>
-          <h1 className="page-title">Users</h1>
-          <p className="page-subtitle">{total} total users</p>
+          <h1 className="page-title" style={{ fontSize: 26 }}>Users</h1>
+          <p className="page-subtitle">Manage students, teachers and admins, and monitor their activity.</p>
         </div>
         <div className="page-actions">
           <Link href="/admin/users/new">
@@ -91,10 +114,23 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
+      <div className="panel-stats">
+        {[
+          [total, (role || isActive || search) ? "Matching Users" : "Users"],
+          [counts?.students ?? "—", "Students"],
+          [counts?.teachers ?? "—", "Teachers"],
+          [counts?.inactive ?? "—", "Inactive"],
+        ].map(([value, label]) => (
+          <div key={String(label)}>
+            <div className="panel-stat-value">{value}</div>
+            <div className="panel-stat-label">{label}</div>
+          </div>
+        ))}
+      </div>
+
       {/* Filters */}
-      <div className="card" style={{ padding: "16px 20px", marginBottom: 20 }}>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <div className="search-bar" style={{ flex: 1, minWidth: 240, maxWidth: 400 }}>
+      <div className="panel-filters">
+          <div className="search-bar" style={{ flex: 1, minWidth: 220, maxWidth: 360, padding: "9px 16px" }}>
             <Search size={16} color="var(--gray-400)" />
             <input
               placeholder="Search by name or email..."
@@ -102,22 +138,23 @@ export default function AdminUsersPage() {
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             />
           </div>
-          <select className="form-control" style={{ width: 140 }} value={role} onChange={(e) => { setRole(e.target.value); setPage(1); }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <select className="form-control pill" value={role} onChange={(e) => { setRole(e.target.value); setPage(1); }}>
             <option value="">All Roles</option>
             <option value="STUDENT">Student</option>
             <option value="TEACHER">Teacher</option>
             <option value="ADMIN">Admin</option>
           </select>
-          <select className="form-control" style={{ width: 150 }} value={isActive} onChange={(e) => { setIsActive(e.target.value); setPage(1); }}>
+          <select className="form-control pill" value={isActive} onChange={(e) => { setIsActive(e.target.value); setPage(1); }}>
             <option value="">All Status</option>
             <option value="true">Active</option>
             <option value="false">Inactive</option>
           </select>
-        </div>
+          </div>
       </div>
 
       {/* Table */}
-      <div className="table-container">
+      <div className="table-container flush">
         <table>
           <thead>
             <tr>
@@ -158,7 +195,7 @@ export default function AdminUsersPage() {
                         {user.firstName[0]}{user.lastName[0]}
                       </div>
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: "var(--gray-900)" }}>
                           {user.firstName} {user.lastName}
                         </div>
                         <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{user.email}</div>
@@ -188,11 +225,11 @@ export default function AdminUsersPage() {
                   </td>
                   <td>
                     <div style={{ fontSize: 13, color: "var(--gray-500)" }}>
-                      {formatDate(user.lastLogin)}
+                      {timeAgo(user.lastLogin)}
                     </div>
                   </td>
                   <td>
-                    <span className={`badge ${user.isActive ? "badge-success" : "badge-danger"}`}>
+                    <span className={`badge badge-dot ${user.isActive ? "badge-success" : "badge-danger"}`}>
                       {user.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
@@ -227,6 +264,7 @@ export default function AdminUsersPage() {
             )}
           </tbody>
         </table>
+      </div>
       </div>
 
       {/* Pagination */}

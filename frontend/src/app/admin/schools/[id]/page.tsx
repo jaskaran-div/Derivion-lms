@@ -392,7 +392,7 @@ export default function SchoolManagePage() {
           <style jsx>{`
             .school-detail-container { padding: 2rem; max-width: 1200px; margin: 0 auto; }
             .school-loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; gap: 1rem; color: var(--text-secondary); }
-            .spinner { width: 36px; height: 36px; border: 3px solid rgba(99,102,241,0.2); border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; }
+            .spinner { width: 36px; height: 36px; border: 3px solid rgba(29, 78, 216,0.2); border-top-color: #1d4ed8; border-radius: 50%; animation: spin 0.8s linear infinite; }
             @keyframes spin { to { transform: rotate(360deg); } }
           `}</style>
         </div>
@@ -416,7 +416,7 @@ export default function SchoolManagePage() {
             .school-detail-container { padding: 2rem; max-width: 800px; margin: 0 auto; }
             .error-box { text-align: center; padding: 4rem 2rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; align-items: center; gap: 1rem; }
             .empty-icon { color: #ef4444; }
-            .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #6366f1; color: white; border-radius: 9px; text-decoration: none; font-weight: 600; margin-top: 1rem; }
+            .btn-primary { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #1d4ed8; color: white; border-radius: 9px; text-decoration: none; font-weight: 600; margin-top: 1rem; }
           `}</style>
         </div>
       </AppLayout>
@@ -1273,7 +1273,7 @@ export default function SchoolManagePage() {
             text-decoration: none;
             transition: color 0.15s;
           }
-          .back-link:hover { color: #6366f1; }
+          .back-link:hover { color: #1d4ed8; }
 
           /* Hero Card */
           .school-hero-card {
@@ -1296,19 +1296,19 @@ export default function SchoolManagePage() {
             width: 64px;
             height: 64px;
             border-radius: 14px;
-            background: linear-gradient(135deg, #6366f1, #a855f7);
+            background: linear-gradient(135deg, #1d4ed8, #a855f7);
             color: white;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
-            box-shadow: 0 4px 14px rgba(99,102,241,0.25);
+            box-shadow: 0 4px 14px rgba(29, 78, 216,0.25);
           }
           .school-hero-info { display: flex; flex-direction: column; gap: 0.35rem; }
           .school-tag-row { display: flex; align-items: center; gap: 0.5rem; }
           .school-code-badge {
-            background: rgba(99,102,241,0.12);
-            color: #6366f1;
+            background: rgba(29, 78, 216,0.12);
+            color: #1d4ed8;
             font-size: 0.75rem;
             font-weight: 700;
             padding: 0.15rem 0.6rem;
@@ -1376,7 +1376,7 @@ export default function SchoolManagePage() {
             justify-content: center;
             flex-shrink: 0;
           }
-          .metric-indigo { background: rgba(99,102,241,0.12); color: #6366f1; }
+          .metric-indigo { background: rgba(29, 78, 216,0.12); color: #1d4ed8; }
           .metric-purple { background: rgba(168,85,247,0.12); color: #9333ea; }
           .metric-blue { background: rgba(59,130,246,0.12); color: #2563eb; }
           .metric-emerald { background: rgba(16,185,129,0.12); color: #059669; }
@@ -1408,9 +1408,9 @@ export default function SchoolManagePage() {
           }
           .tab-btn:hover { color: #0f172a; background: #f1f5f9; }
           .tab-btn--active {
-            color: #6366f1;
-            border-bottom: 2px solid #6366f1;
-            background: rgba(99,102,241,0.08);
+            color: #1d4ed8;
+            border-bottom: 2px solid #1d4ed8;
+            background: rgba(29, 78, 216,0.08);
           }
 
           /* Tab Panes */
@@ -1483,9 +1483,9 @@ export default function SchoolManagePage() {
           }
           .role-filter-pill:hover { background: #f1f5f9; color: #0f172a; }
           .role-filter-pill--active {
-            background: #6366f1;
+            background: #1d4ed8;
             color: #ffffff;
-            border-color: #6366f1;
+            border-color: #1d4ed8;
           }
 
           .member-profile-cell { display: flex; align-items: center; gap: 0.75rem; }
@@ -1540,7 +1540,7 @@ export default function SchoolManagePage() {
           }
           .class-card:hover {
             transform: translateY(-2px);
-            border-color: #6366f1;
+            border-color: #1d4ed8;
             box-shadow: 0 4px 12px rgba(0,0,0,0.05);
           }
           .class-card-top {
@@ -1578,7 +1578,7 @@ export default function SchoolManagePage() {
             font-size: 0.85rem;
             color: #64748b;
           }
-          .teacher-icon { color: #6366f1; }
+          .teacher-icon { color: #1d4ed8; }
           .class-card-actions { margin-top: auto; }
 
           /* Courses Grid */
@@ -1633,7 +1633,7 @@ export default function SchoolManagePage() {
             gap: 0.5rem;
           }
           .stat-title { font-size: 0.85rem; font-weight: 600; color: #64748b; }
-          .stat-num { font-size: 2rem; font-weight: 800; color: #6366f1; }
+          .stat-num { font-size: 2rem; font-weight: 800; color: #1d4ed8; }
 
           /* Empty State */
           .empty-panel {
@@ -1681,9 +1681,9 @@ export default function SchoolManagePage() {
             gap: 0.45rem;
             height: 38px;
             padding: 0 1.25rem;
-            background: #4f46e5;
+            background: #1e40af;
             color: #ffffff;
-            border: 1.5px solid #4f46e5;
+            border: 1.5px solid #1e40af;
             border-radius: 9px;
             font-size: 0.85rem;
             font-weight: 600;
@@ -1695,8 +1695,8 @@ export default function SchoolManagePage() {
             box-sizing: border-box;
           }
           .btn-primary:hover {
-            background: #4338ca;
-            border-color: #4338ca;
+            background: #1e40af;
+            border-color: #1e40af;
             transform: translateY(-1px);
             box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);
           }
@@ -1737,9 +1737,9 @@ export default function SchoolManagePage() {
             gap: 0.45rem;
             height: 38px;
             padding: 0 1.15rem;
-            background: #eef2ff;
+            background: #eff4ff;
             border: 1.5px solid #c7d2fe;
-            color: #4f46e5;
+            color: #1e40af;
             border-radius: 9px;
             font-size: 0.85rem;
             font-weight: 600;
@@ -1751,9 +1751,9 @@ export default function SchoolManagePage() {
             box-sizing: border-box;
           }
           .btn-import:hover {
-            background: #e0e7ff;
+            background: #dbe6ff;
             border-color: #a5b4fc;
-            color: #4338ca;
+            color: #1e40af;
             transform: translateY(-1px);
             box-shadow: 0 3px 8px rgba(79, 70, 229, 0.18);
           }
@@ -1857,8 +1857,8 @@ export default function SchoolManagePage() {
             transition: border-color 0.2s, box-shadow 0.2s;
           }
           .form-group input:focus, .form-group select:focus {
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+            border-color: #1d4ed8;
+            box-shadow: 0 0 0 3px rgba(29, 78, 216,0.15);
           }
           .modal-footer {
             display: flex;

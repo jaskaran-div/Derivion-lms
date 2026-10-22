@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
-import { coursesAPI } from "@/lib/api";
+import { coursesAPI, quizAPI } from "@/lib/api";
+import Link from "next/link";
 import { isAxiosError } from "axios";
 import toast from "react-hot-toast";
 import {
@@ -17,7 +18,10 @@ type ContentType = "VIDEO" | "PDF" | "DOCUMENT" | "QUIZ" | "LINK";
 interface Content {
   id: string; title: string; type: ContentType; duration?: number;
   isFree: boolean; isPublished: boolean; s3Key?: string; cloudFrontUrl?: string; order: number;
+  assessmentId?: string | null;
+  assessment?: { id: string; title: string; isPublished: boolean } | null;
 }
+interface QuizOption { id: string; title: string; isPublished: boolean; _count: { questions: number } }
 interface Section {
   id: string; title: string; order: number; isPublished: boolean; contents: Content[];
 }
@@ -50,12 +54,20 @@ export default function CourseEditPage() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [addingSectionTitle, setAddingSectionTitle] = useState("");
   const [showAddSection, setShowAddSection] = useState(false);
-  const [addingContent, setAddingContent] = useState<{ sectionId: string; title: string; type: ContentType } | null>(null);
+  const [addingContent, setAddingContent] = useState<{ sectionId: string; title: string; type: ContentType; assessmentId?: string } | null>(null);
+  const [quizzes, setQuizzes] = useState<QuizOption[] | null>(null);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [emiEnabled, setEmiEnabled] = useState(false);
   const [savingEmi, setSavingEmi] = useState(false);
 
   useEffect(() => { if (id) loadCourse(); }, [id]);
+
+  // Load the quiz bank the first time the admin picks "Quiz" as a content type
+  useEffect(() => {
+    if (addingContent?.type === "QUIZ" && quizzes === null) {
+      quizAPI.list().then((res) => setQuizzes(res.data.data)).catch(() => setQuizzes([]));
+    }
+  }, [addingContent?.type, quizzes]);
 
   const loadCourse = async () => {
     try {
@@ -127,17 +139,25 @@ export default function CourseEditPage() {
   };
 
   const handleAddContent = async () => {
-    if (!addingContent || !addingContent.title.trim()) return;
+    if (!addingContent) return;
+    const isQuiz = addingContent.type === "QUIZ";
+    if (isQuiz && !addingContent.assessmentId) {
+      toast.error("Select a quiz.");
+      return;
+    }
+    const title = addingContent.title.trim() || (isQuiz ? quizzes?.find((q) => q.id === addingContent.assessmentId)?.title : "") || "";
+    if (!title) return;
     try {
       await coursesAPI.createContent(addingContent.sectionId, {
-        title: addingContent.title,
+        title,
         type: addingContent.type,
+        ...(isQuiz && { assessmentId: addingContent.assessmentId }),
       });
       setAddingContent(null);
       toast.success("Content added.");
       loadCourse();
-    } catch {
-      toast.error("Failed to add content.");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to add content.");
     }
   };
 
@@ -398,6 +418,25 @@ export default function CourseEditPage() {
                             </div>
                           </div>
 
+                          {content.type === "QUIZ" && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              {content.assessment ? (
+                                <>
+                                  {!content.assessment.isPublished && (
+                                    <span className="badge badge-warning" style={{ fontSize: 10 }}>Quiz is draft</span>
+                                  )}
+                                  <Link href={`/admin/quizzes/${content.assessment.id}`}>
+                                    <button type="button" className="btn btn-secondary btn-sm" style={{ fontSize: 12 }}>
+                                      <HelpCircle size={12} /> {content.assessment.title}
+                                    </button>
+                                  </Link>
+                                </>
+                              ) : (
+                                <span className="badge badge-danger" style={{ fontSize: 10 }}>No quiz linked</span>
+                              )}
+                            </div>
+                          )}
+
                           {/* Upload actions for Video/PDF */}
                           {(content.type === "VIDEO" || content.type === "PDF" || content.type === "DOCUMENT") && (
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -468,7 +507,7 @@ export default function CourseEditPage() {
                               className="form-control"
                               style={{ width: 140 }}
                               value={addingContent.type}
-                              onChange={(e) => setAddingContent({ ...addingContent, type: e.target.value as ContentType })}
+                              onChange={(e) => setAddingContent({ ...addingContent, type: e.target.value as ContentType, assessmentId: undefined })}
                             >
                               <option value="VIDEO">📹 Video</option>
                               <option value="PDF">📄 PDF</option>
@@ -476,10 +515,25 @@ export default function CourseEditPage() {
                               <option value="QUIZ">🎯 Quiz</option>
                               <option value="LINK">🔗 Link</option>
                             </select>
+                            {addingContent.type === "QUIZ" && (
+                              <select
+                                className="form-control"
+                                style={{ flex: 1, minWidth: 200 }}
+                                value={addingContent.assessmentId || ""}
+                                onChange={(e) => setAddingContent({ ...addingContent, assessmentId: e.target.value || undefined })}
+                              >
+                                <option value="">{quizzes === null ? "Loading quizzes…" : quizzes.length === 0 ? "No quizzes — create one first" : "Select a quiz…"}</option>
+                                {(quizzes || []).map((q) => (
+                                  <option key={q.id} value={q.id}>
+                                    {q.title} ({q._count.questions} Q{q.isPublished ? "" : ", draft"})
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                             <input
                               className="form-control"
                               style={{ flex: 1, minWidth: 200 }}
-                              placeholder="Content title"
+                              placeholder={addingContent.type === "QUIZ" ? "Lesson title (defaults to quiz name)" : "Content title"}
                               value={addingContent.title}
                               onChange={(e) => setAddingContent({ ...addingContent, title: e.target.value })}
                               onKeyDown={(e) => e.key === "Enter" && handleAddContent()}
@@ -488,6 +542,11 @@ export default function CourseEditPage() {
                             <button className="btn btn-primary btn-sm" onClick={handleAddContent}>Add</button>
                             <button className="btn btn-secondary btn-sm" onClick={() => setAddingContent(null)}>Cancel</button>
                           </div>
+                          {addingContent.type === "QUIZ" && (
+                            <div className="form-hint" style={{ marginTop: 6 }}>
+                              Quizzes are managed in <Link href="/admin/quizzes" style={{ color: "var(--primary)" }}>Quizzes</Link>.
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div style={{ padding: "10px 18px", borderTop: "1px solid var(--gray-100)" }}>

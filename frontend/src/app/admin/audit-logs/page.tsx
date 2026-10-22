@@ -14,13 +14,13 @@ const ACTION_LABELS: Record<string, { label: string; color: string; icon: React.
   LOGOUT: { label: "Logout", color: "#6b7280", icon: <LogOut size={13} /> },
   PASSWORD_CHANGE: { label: "Password Changed", color: "#f59e0b", icon: <Key size={13} /> },
   ROLE_CHANGE: { label: "Role Changed", color: "#8b5cf6", icon: <Shield size={13} /> },
-  USER_CREATED: { label: "User Created", color: "#6366f1", icon: <Users size={13} /> },
+  USER_CREATED: { label: "User Created", color: "#1d4ed8", icon: <Users size={13} /> },
   USER_DELETED: { label: "User Deleted", color: "#ef4444", icon: <Users size={13} /> },
   STUDENT_IMPORTED: { label: "Student Imported", color: "#06b6d4", icon: <Upload size={13} /> },
   ENROLLMENT_CREATED: { label: "Enrollment Created", color: "#10b981", icon: <BookOpen size={13} /> },
   PAYMENT_VERIFIED: { label: "Payment Verified", color: "#10b981", icon: <CreditCard size={13} /> },
   CERTIFICATE_ISSUED: { label: "Certificate Issued", color: "#f59e0b", icon: <Award size={13} /> },
-  SCHOOL_CREATED: { label: "School Created", color: "#6366f1", icon: <Building2 size={13} /> },
+  SCHOOL_CREATED: { label: "School Created", color: "#1d4ed8", icon: <Building2 size={13} /> },
   CLASS_ASSIGNED: { label: "Class Assigned", color: "#8b5cf6", icon: <Building2 size={13} /> },
   BULK_IMPORT: { label: "Bulk Import", color: "#06b6d4", icon: <Upload size={13} /> },
   ADMIN_ACTION: { label: "Admin Action", color: "#ef4444", icon: <Shield size={13} /> },
@@ -265,7 +265,7 @@ export default function AuditLogsPage() {
             background: var(--card-bg); border: 1px solid var(--border);
             border-radius: 9px; color: var(--text-primary); font-size: 0.875rem; outline: none;
           }
-          .audit-search:focus { border-color: #6366f1; }
+          .audit-search:focus { border-color: #1d4ed8; }
           .audit-filter-wrap { position: relative; }
           .filter-icon {
             position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%);
@@ -311,7 +311,7 @@ export default function AuditLogsPage() {
           .audit-user { display: flex; align-items: center; gap: 0.6rem; }
           .audit-avatar {
             width: 30px; height: 30px; border-radius: 50%;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: linear-gradient(135deg, #1d4ed8, #8b5cf6);
             color: white; display: flex; align-items: center; justify-content: center;
             font-size: 0.65rem; font-weight: 700; flex-shrink: 0;
           }

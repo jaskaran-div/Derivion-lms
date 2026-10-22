@@ -130,10 +130,7 @@ export default function StudentPaymentsPage() {
       {/* Summary Stats */}
       <div className="stats-grid" style={{ marginBottom: 24 }}>
         <div className="stat-card">
-          <div
-            className="stat-icon"
-            style={{ background: "var(--primary-50)", color: "var(--primary)" }}
-          >
+          <div className="stat-icon blue">
             <CreditCard size={20} />
           </div>
           <div className="stat-value">
@@ -143,10 +140,7 @@ export default function StudentPaymentsPage() {
         </div>
 
         <div className="stat-card">
-          <div
-            className="stat-icon"
-            style={{ background: "#ecfdf5", color: "#059669" }}
-          >
+          <div className="stat-icon green">
             <CheckCircle2 size={20} />
           </div>
           <div className="stat-value">{stats.successfulCount}</div>
@@ -154,10 +148,7 @@ export default function StudentPaymentsPage() {
         </div>
 
         <div className="stat-card">
-          <div
-            className="stat-icon"
-            style={{ background: "#eff6ff", color: "#2563eb" }}
-          >
+          <div className="stat-icon purple">
             <ShieldCheck size={20} />
           </div>
           <div className="stat-value">Razorpay</div>

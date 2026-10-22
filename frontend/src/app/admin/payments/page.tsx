@@ -14,7 +14,7 @@ interface Payment {
   cashfreeOrderId?: string;
   createdAt: string;
   user: { firstName: string; lastName: string; email: string };
-  course: { title: string };
+  course: { title: string } | null;
 }
 
 export default function AdminPaymentsPage() {
@@ -150,7 +150,7 @@ export default function AdminPaymentsPage() {
                 </td>
                 <td>
                   <div style={{ fontSize: 13, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {payment.course.title}
+                    {payment.course?.title || "Deleted course"}
                   </div>
                 </td>
                 <td>

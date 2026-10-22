@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Play, Pause, RotateCcw, RotateCw, SkipForward,
   Volume2, Volume1, VolumeX, Maximize, Minimize,
-  PictureInPicture2, Check
+  PictureInPicture2, Check, AlertCircle
 } from "lucide-react";
 
 interface CustomVideoPlayerProps {
@@ -17,7 +17,6 @@ interface CustomVideoPlayerProps {
   onNext?: () => void;
   hasNext?: boolean;
   onDurationDetected?: (duration: number) => void;
-  watermark?: string;
   disablePictureInPicture?: boolean;
 }
 
@@ -33,7 +32,6 @@ export default function CustomVideoPlayer({
   onNext,
   hasNext,
   onDurationDetected,
-  watermark,
   disablePictureInPicture = false,
 }: CustomVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -55,6 +53,16 @@ export default function CustomVideoPlayer({
   const [hoverPosition, setHoverPosition] = useState<number>(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [centerAnimation, setCenterAnimation] = useState<"play" | "pause" | null>(null);
+  const [isBuffering, setIsBuffering] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  // New source: show the loader until the first frame can play
+  const [loadedSrc, setLoadedSrc] = useState(src);
+  if (loadedSrc !== src) {
+    setLoadedSrc(src);
+    setIsBuffering(true);
+    setLoadError(false);
+  }
 
   // Play / Pause toggle
   const togglePlay = useCallback(() => {
@@ -300,36 +308,80 @@ export default function CustomVideoPlayer({
         onLoadedMetadata={handleLoadedMetadata}
         onTimeUpdate={handleTimeUpdate}
         onEnded={onEnded}
+        onLoadStart={() => setIsBuffering(true)}
+        onWaiting={() => setIsBuffering(true)}
+        onSeeking={() => setIsBuffering(true)}
+        onCanPlay={() => setIsBuffering(false)}
+        onPlaying={() => setIsBuffering(false)}
+        onSeeked={() => {
+          if ((videoRef.current?.readyState ?? 0) >= 3) setIsBuffering(false);
+        }}
+        onError={() => {
+          setIsBuffering(false);
+          setLoadError(true);
+        }}
+        onContextMenu={(e) => e.preventDefault()}
         playsInline
         disablePictureInPicture={disablePictureInPicture}
         controlsList="nodownload noplaybackrate"
       />
 
-      {watermark && (
+      {/* Loading / buffering spinner */}
+      {isBuffering && !loadError && (
         <div
-          aria-hidden="true"
+          aria-label="Loading video"
           style={{
             position: "absolute",
-            inset: "12% 5%",
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gridTemplateRows: "repeat(2, 1fr)",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
             alignItems: "center",
-            justifyItems: "center",
-            color: "rgba(255, 255, 255, 0.5)",
-            fontSize: "clamp(10px, 1.1vw, 16px)",
-            fontWeight: 700,
-            textAlign: "center",
-            textShadow: "0 1px 3px rgba(0,0,0,0.8)",
-            opacity: 0.5,
+            justifyContent: "center",
+            gap: 12,
+            background: currentTime === 0 ? "rgba(7, 9, 14, 0.75)" : "transparent",
+            color: "rgba(255,255,255,0.85)",
+            fontSize: 13,
+            fontWeight: 500,
             pointerEvents: "none",
-            userSelect: "none",
-            zIndex: 5,
+            zIndex: 6,
           }}
         >
-          {Array.from({ length: 6 }, (_, index) => (
-            <span key={index}>{watermark}</span>
-          ))}
+          <div className="custom-player-spinner" />
+          {currentTime === 0 && <span>Loading video…</span>}
+        </div>
+      )}
+
+      {loadError && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            background: "#07090e",
+            color: "white",
+            textAlign: "center",
+            padding: 24,
+            zIndex: 7,
+          }}
+        >
+          <AlertCircle size={36} color="#f87171" />
+          <div style={{ fontWeight: 600 }}>This video could not be loaded.</div>
+          <div style={{ fontSize: 13, opacity: 0.7 }}>Check your internet connection and try again.</div>
+          <button
+            className="btn btn-secondary btn-sm"
+            style={{ marginTop: 6 }}
+            onClick={() => {
+              setLoadError(false);
+              setIsBuffering(true);
+              videoRef.current?.load();
+            }}
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -444,7 +496,7 @@ export default function CustomVideoPlayer({
               left: 0,
               bottom: 0,
               width: `${progressPercent}%`,
-              background: "linear-gradient(90deg, #8b5cf6, #6366f1)",
+              background: "linear-gradient(90deg, #8b5cf6, #1d4ed8)",
               borderRadius: 4,
             }}
           />

@@ -147,7 +147,7 @@ export default function CertificateVerifyPage({ params }: { params: { id: string
         }
         .verify-bg {
           position: fixed; inset: 0; z-index: 0;
-          background: radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.15) 0%, transparent 50%),
+          background: radial-gradient(ellipse at 20% 50%, rgba(29, 78, 216,0.15) 0%, transparent 50%),
                       radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.12) 0%, transparent 50%);
         }
         .verify-container {
@@ -169,8 +169,8 @@ export default function CertificateVerifyPage({ params }: { params: { id: string
           padding: 2rem; color: #94a3b8;
         }
         .spinner {
-          width: 40px; height: 40px; border: 3px solid rgba(99,102,241,0.2);
-          border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite;
+          width: 40px; height: 40px; border: 3px solid rgba(29, 78, 216,0.2);
+          border-top-color: #1d4ed8; border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -207,7 +207,7 @@ export default function CertificateVerifyPage({ params }: { params: { id: string
         }
         .cert-detail-header {
           display: flex; align-items: center; gap: 0.65rem;
-          padding: 0.9rem 1.25rem; background: rgba(99,102,241,0.12);
+          padding: 0.9rem 1.25rem; background: rgba(29, 78, 216,0.12);
           border-bottom: 1px solid rgba(255,255,255,0.06);
           color: #a5b4fc; font-weight: 700; font-size: 0.9rem;
         }
@@ -227,8 +227,8 @@ export default function CertificateVerifyPage({ params }: { params: { id: string
         }
         .cert-recipient { font-size: 1.05rem; font-weight: 700; color: #f1f5f9; }
         .cert-level-badge {
-          background: rgba(99,102,241,0.15); color: #a5b4fc;
-          border: 1px solid rgba(99,102,241,0.25); padding: 0.15rem 0.55rem;
+          background: rgba(29, 78, 216,0.15); color: #a5b4fc;
+          border: 1px solid rgba(29, 78, 216,0.25); padding: 0.15rem 0.55rem;
           border-radius: 6px; font-size: 0.78rem; font-weight: 700;
         }
         .cert-no { font-family: monospace; font-size: 0.85rem; color: #94a3b8; }
@@ -244,7 +244,7 @@ export default function CertificateVerifyPage({ params }: { params: { id: string
           display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
           color: #475569; font-size: 0.8rem;
         }
-        .verify-home-link { color: #6366f1; text-decoration: none; font-weight: 500; }
+        .verify-home-link { color: #1d4ed8; text-decoration: none; font-weight: 500; }
         .verify-home-link:hover { text-decoration: underline; }
       `}</style>
     </div>

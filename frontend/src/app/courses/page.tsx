@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { coursesAPI } from "@/lib/api";
 import Link from "next/link";
-import { Search, Filter, SlidersHorizontal, Star, Users, Clock, BookOpen } from "lucide-react";
+import { Search, Filter, SlidersHorizontal, Users, Clock, BookOpen } from "lucide-react";
 import CourseShareMenu from "@/components/courses/CourseShareMenu";
 
 interface Course {
@@ -168,7 +168,6 @@ export default function CoursesPage() {
           >
             <option value="createdAt">Newest</option>
             <option value="totalStudents">Most Popular</option>
-            <option value="rating">Highest Rated</option>
             <option value="price">Price: Low to High</option>
           </select>
         </div>
@@ -254,10 +253,6 @@ export default function CoursesPage() {
                   )}
 
                   <div className="course-card-meta">
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <Star size={12} fill="var(--accent)" color="var(--accent)" />
-                      {parseFloat(String(course.rating)).toFixed(1)}
-                    </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       <Users size={12} /> {course.totalStudents.toLocaleString()}
                     </span>

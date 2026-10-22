@@ -80,7 +80,7 @@ export default function MyCoursesPage() {
         </div>
 
         {loading ? (
-          <div className="grid-courses">
+          <div className="my-course-grid">
             {[1, 2, 3].map((i) => (
               <div key={i} className="card" style={{ overflow: "hidden" }}>
                 <div className="skeleton" style={{ height: 180 }} />
@@ -93,7 +93,7 @@ export default function MyCoursesPage() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="empty-state">
+          <div className="card"><div className="empty-state">
             <div className="empty-state-icon">📚</div>
             <div className="empty-state-title">
               {filter === "completed" ? "No completed courses yet" : "No courses here"}
@@ -107,102 +107,75 @@ export default function MyCoursesPage() {
             </div>
             {filter === "all" && (
               <Link href="/courses">
-                <button className="btn btn-primary btn-lg">Browse Courses →</button>
+                <button className="btn btn-dark btn-lg">Browse Courses</button>
               </Link>
             )}
-          </div>
+          </div></div>
         ) : (
-          <div className="grid-courses">
-            {filtered.map((enrollment) => (
-              <Link href={`/courses/${enrollment.course.slug}`} key={enrollment.id}>
-                <div className="course-card">
-                  <div
-                    className="course-card-image"
-                    style={{
-                      background: enrollment.course.thumbnail
-                        ? `url(${enrollment.course.thumbnail}) center/cover`
-                        : "linear-gradient(135deg, var(--primary-100), var(--primary-50))",
-                      position: "relative",
-                    }}
-                  >
-                    {!enrollment.course.thumbnail && <span style={{ fontSize: 48 }}>📚</span>}
-                    {enrollment.status === "COMPLETED" && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: 10,
-                          right: 10,
-                          background: "var(--success)",
-                          color: "white",
-                          borderRadius: 999,
-                          padding: "4px 10px",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <CheckCircle size={12} /> Completed
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="course-card-body">
-                    <div className="course-card-category">{enrollment.course.category?.name}</div>
-                    <div className="course-card-title">{enrollment.course.title}</div>
-
-                    <div className="course-card-meta">
-                      {enrollment.course.totalDuration > 0 && (
-                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <Clock size={12} /> {formatDuration(enrollment.course.totalDuration)}
-                        </span>
+          <div className="my-course-grid">
+            {filtered.map((enrollment) => {
+              const progress = Math.round(parseFloat(String(enrollment.progressPercent)) || 0);
+              const completed = enrollment.status === "COMPLETED";
+              return (
+                <Link href={`/courses/${enrollment.course.slug}`} key={enrollment.id}>
+                  <div className="my-course-card">
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      {enrollment.course.category?.name && (
+                        <span className="badge badge-success">{enrollment.course.category.name}</span>
                       )}
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <BookOpen size={12} /> {enrollment.course.totalLessons} lessons
-                      </span>
+                      {completed ? (
+                        <span className="badge badge-violet"><CheckCircle size={12} /> Completed</span>
+                      ) : progress === 0 ? (
+                        <span className="badge badge-warning">New</span>
+                      ) : null}
                     </div>
 
-                    {/* Progress */}
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12 }}>
-                        <span style={{ color: "var(--gray-500)" }}>
-                          {enrollment.status === "COMPLETED" ? "Completed" : "Progress"}
-                        </span>
-                        <span style={{ fontWeight: 600, color: enrollment.status === "COMPLETED" ? "var(--success)" : "var(--primary)" }}>
-                          {Math.round(parseFloat(String(enrollment.progressPercent)))}%
-                        </span>
+                    <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                      {enrollment.course.thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={enrollment.course.thumbnail} alt="" className="my-course-thumb" />
+                      ) : (
+                        <div className="my-course-thumb">📚</div>
+                      )}
+                      <div style={{ minWidth: 0 }}>
+                        <div className="course-card-title" style={{ fontSize: 17, marginBottom: 4 }}>{enrollment.course.title}</div>
+                        <div style={{ fontSize: 12.5, color: "var(--gray-500)" }}>Enrolled {formatDate(enrollment.enrolledAt)}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13, color: "var(--gray-600)" }}>
+                        <span>Progress</span>
+                        <span>{completed ? "Completed" : `${progress}%`}</span>
                       </div>
                       <div className="progress-bar">
-                        <div
-                          className="progress-fill"
-                          style={{
-                            width: `${parseFloat(String(enrollment.progressPercent))}%`,
-                            background: enrollment.status === "COMPLETED"
-                              ? "linear-gradient(90deg, var(--success), #34d399)"
-                              : undefined,
-                          }}
-                        />
+                        <div className="progress-fill" style={{ width: `${completed ? 100 : progress}%` }} />
                       </div>
                     </div>
 
-                    <button className="btn btn-primary w-full btn-sm" style={{ justifyContent: "center" }}>
-                      {enrollment.status === "COMPLETED" ? (
-                        "Review Course"
-                      ) : parseFloat(String(enrollment.progressPercent)) === 0 ? (
-                        "Start Course →"
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: "auto", flexWrap: "wrap" }}>
+                      <div className="course-card-meta" style={{ marginBottom: 0 }}>
+                        {enrollment.course.totalDuration > 0 && (
+                          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <Clock size={13} /> {formatDuration(enrollment.course.totalDuration)}
+                          </span>
+                        )}
+                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <BookOpen size={13} /> {enrollment.course.totalLessons} lessons
+                        </span>
+                      </div>
+                      {completed ? (
+                        <button className="btn btn-outline btn-sm">Review Course</button>
                       ) : (
-                        <><Play size={13} /> Continue Learning</>
+                        <button className="btn btn-dark btn-sm">
+                          {progress === 0 ? "Start" : <><Play size={13} /> Continue</>}
+                        </button>
                       )}
-                    </button>
-
-                    <div style={{ fontSize: 11, color: "var(--gray-400)", textAlign: "center", marginTop: 8 }}>
-                      Enrolled {formatDate(enrollment.enrolledAt)}
                     </div>
                   </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         )}
       </LearnerContentProtection>

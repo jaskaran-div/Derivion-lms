@@ -192,25 +192,41 @@ export const coursesAPI = {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
-  // Assessments
-  createAssessment: (courseId: string, data: object) =>
-    api.post(`/courses/admin/${courseId}/assessments`, data),
-  updateAssessment: (id: string, data: object) =>
-    api.put(`/courses/admin/assessments/${id}`, data),
-  addQuestion: (assessmentId: string, data: object) =>
-    api.post(`/courses/admin/assessments/${assessmentId}/questions`, data),
-  updateQuestion: (id: string, data: object) =>
-    api.put(`/courses/admin/questions/${id}`, data),
-  deleteQuestion: (id: string) => api.delete(`/courses/admin/questions/${id}`),
   // Student
   getContent: (id: string) => api.get(`/courses/student/content/${id}`),
   updateProgress: (id: string, data: object) =>
     api.post(`/courses/student/content/${id}/progress`, data),
   syncDuration: (id: string, duration: number) =>
     api.post(`/courses/content/${id}/duration`, { duration }),
-  getAssessment: (id: string) => api.get(`/courses/student/assessments/${id}`),
-  submitAssessment: (id: string, data: object) =>
-    api.post(`/courses/student/assessments/${id}/submit`, data),
+};
+
+// ==================== QUIZZES ====================
+export const quizAPI = {
+  // Admin quiz bank
+  list: () => api.get("/courses/admin/quizzes"),
+  get: (id: string) => api.get(`/courses/admin/quizzes/${id}`),
+  create: (data: object) => api.post("/courses/admin/quizzes", data),
+  update: (id: string, data: object) => api.put(`/courses/admin/quizzes/${id}`, data),
+  delete: (id: string) => api.delete(`/courses/admin/quizzes/${id}`),
+  attempts: (id: string) => api.get(`/courses/admin/quizzes/${id}/attempts`),
+  addQuestion: (quizId: string, data: object) => api.post(`/courses/admin/quizzes/${quizId}/questions`, data),
+  updateQuestion: (id: string, data: object) => api.put(`/courses/admin/questions/${id}`, data),
+  deleteQuestion: (id: string) => api.delete(`/courses/admin/questions/${id}`),
+  previewImport: (quizId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post(`/courses/admin/quizzes/${quizId}/import/preview`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  bulkAddQuestions: (quizId: string, questions: object[]) =>
+    api.post(`/courses/admin/quizzes/${quizId}/questions/bulk`, { questions }),
+  // Student
+  getInfo: (id: string, contentId?: string) =>
+    api.get(`/courses/student/assessments/${id}`, { params: contentId ? { contentId } : {} }),
+  start: (id: string, contentId?: string) => api.post(`/courses/student/assessments/${id}/start`, { contentId }),
+  save: (attemptId: string, data: object) => api.put(`/courses/student/attempts/${attemptId}`, data),
+  submit: (attemptId: string, data: object) => api.post(`/courses/student/attempts/${attemptId}/submit`, data),
 };
 
 // ==================== USERS ====================
@@ -254,6 +270,14 @@ export const paymentsAPI = {
     api.post("/payments/create-order", { courseId }),
   verifyPayment: (data: string | { razorpay_order_id?: string; razorpay_payment_id?: string; razorpay_signature?: string; orderId?: string }) =>
     api.post("/payments/verify", typeof data === "string" ? { orderId: data } : data),
+};
+
+// ==================== MENTOR SESSIONS ====================
+export const mentorAPI = {
+  list: () => api.get("/mentor-sessions"),
+  create: (data: object) => api.post("/admin/mentor-sessions", data),
+  update: (id: string, data: object) => api.put(`/admin/mentor-sessions/${id}`, data),
+  delete: (id: string) => api.delete(`/admin/mentor-sessions/${id}`),
 };
 
 // ==================== FORUM ====================

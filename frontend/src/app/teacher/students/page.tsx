@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { teacherAPI } from "@/lib/api";
 import toast from "react-hot-toast";
-import { Plus, Pencil, Trash2, Copy, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, X, Search } from "lucide-react";
 
 interface Student {
   id: string;
@@ -142,24 +142,43 @@ export default function TeacherStudentsPage() {
 
   return (
     <AppLayout requiredRole="TEACHER">
-      <div className="page-header">
+      <div className="panel">
+      <div className="panel-head">
         <div>
-          <h1 className="page-title">Students</h1>
+          <h1 className="page-title" style={{ fontSize: 26 }}>Students</h1>
           <p className="page-subtitle">Create login IDs from guardian email or phone. Passwords are shown only once.</p>
         </div>
-        <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add student</button>
+        <div className="page-actions">
+          <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add Student</button>
+        </div>
       </div>
 
-      <div className="card" style={{ padding: "16px 20px", marginBottom: 20 }}>
-        <input
-          className="form-control"
-          placeholder="Search by name, student ID, or guardian contact"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="panel-stats">
+        {[
+          [students.length, "Students"],
+          [students.filter((x) => x.isActive).length, "Active"],
+          [students.filter((x) => !x.isActive).length, "Inactive"],
+          [students.reduce((sum, x) => sum + (x._count?.enrollments ?? 0), 0), "Course Enrollments"],
+        ].map(([value, label]) => (
+          <div key={String(label)}>
+            <div className="panel-stat-value">{loading ? "—" : value}</div>
+            <div className="panel-stat-label">{label}</div>
+          </div>
+        ))}
       </div>
 
-      <div className="table-container">
+      <div className="panel-filters">
+        <div className="search-bar" style={{ flex: 1, maxWidth: 380, padding: "9px 16px" }}>
+          <Search size={16} color="var(--gray-400)" />
+          <input
+            placeholder="Search students, ID, guardian contact…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="table-container flush">
         <table>
           <thead>
             <tr>
@@ -186,9 +205,14 @@ export default function TeacherStudentsPage() {
               students.map((s) => (
                 <tr key={s.id}>
                   <td>
-                    <div style={{ fontWeight: 600 }}>{s.firstName} {s.lastName}</div>
-                    <div style={{ fontSize: 12, color: "var(--gray-400)" }}>
-                      Last login: {s.lastLogin ? new Date(s.lastLogin).toLocaleDateString("en-IN") : "Never"}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div className="avatar">{(s.firstName?.[0] || "") + (s.lastName?.[0] || "")}</div>
+                      <div>
+                        <div style={{ fontWeight: 600, color: "var(--gray-900)" }}>{s.firstName} {s.lastName}</div>
+                        <div style={{ fontSize: 12, color: "var(--gray-400)" }}>
+                          Last login: {s.lastLogin ? new Date(s.lastLogin).toLocaleDateString("en-IN") : "Never"}
+                        </div>
+                      </div>
                     </div>
                   </td>
                   <td><code>{s.username}</code></td>
@@ -198,7 +222,7 @@ export default function TeacherStudentsPage() {
                   </td>
                   <td>{s._count?.enrollments ?? 0}</td>
                   <td>
-                    <span className={`badge ${s.isActive ? "badge-success" : "badge-danger"}`}>
+                    <span className={`badge badge-dot ${s.isActive ? "badge-success" : "badge-danger"}`}>
                       {s.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
@@ -215,6 +239,7 @@ export default function TeacherStudentsPage() {
             )}
           </tbody>
         </table>
+      </div>
       </div>
 
       {showForm && (

@@ -469,7 +469,7 @@ export default function UniversalChat({ hint }: { hint?: string }) {
                       color: mine ? "white" : "var(--gray-900)",
                       padding: "10px 14px",
                       borderRadius: mine ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-                      boxShadow: mine ? "0 2px 8px rgba(99, 102, 241, 0.2)" : "var(--shadow-sm)",
+                      boxShadow: mine ? "0 2px 8px rgba(29, 78, 216, 0.2)" : "var(--shadow-sm)",
                       border: mine ? "none" : "1px solid var(--border-color)",
                       fontSize: 14,
                       lineHeight: 1.5,

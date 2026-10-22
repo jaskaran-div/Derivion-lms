@@ -402,7 +402,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
             width: 180,
             height: 180,
             borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%)",
+            background: "radial-gradient(circle, rgba(29, 78, 216, 0.15) 0%, transparent 70%)",
             pointerEvents: "none",
           }}
         />
@@ -414,7 +414,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 5,
-                background: "rgba(99, 102, 241, 0.25)",
+                background: "rgba(29, 78, 216, 0.25)",
                 color: "#c7d2fe",
                 fontSize: 12,
                 fontWeight: 600,
@@ -738,7 +738,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                             width: 44,
                             height: 44,
                             borderRadius: "50%",
-                            background: "linear-gradient(135deg, var(--primary) 0%, #4338ca 100%)",
+                            background: "linear-gradient(135deg, var(--primary) 0%, #1e40af 100%)",
                             color: "white",
                             fontWeight: 800,
                             fontSize: 16,
@@ -767,13 +767,13 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                                     ? "#fee2e2"
                                     : selectedRecipient.role === "TEACHER"
                                     ? "#dcfce7"
-                                    : "#e0e7ff",
+                                    : "#dbe6ff",
                                 color:
                                   selectedRecipient.role === "ADMIN"
                                     ? "#b91c1c"
                                     : selectedRecipient.role === "TEACHER"
                                     ? "#15803d"
-                                    : "#4338ca",
+                                    : "#1e40af",
                               }}
                             >
                               {selectedRecipient.role}
@@ -900,7 +900,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                                     width: 36,
                                     height: 36,
                                     borderRadius: "50%",
-                                    background: "#e0e7ff",
+                                    background: "#dbe6ff",
                                     color: "var(--primary)",
                                     fontWeight: 700,
                                     fontSize: 14,
@@ -1319,7 +1319,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                 <Sparkles size={16} color="var(--primary)" />
-                <span style={{ fontWeight: 700, fontSize: 13, color: "#312e81" }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: "#1e3a8a" }}>
                   Delivery Insights
                 </span>
               </div>
@@ -1467,7 +1467,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                                   width: 32,
                                   height: 32,
                                   borderRadius: "50%",
-                                  background: "#e0e7ff",
+                                  background: "#dbe6ff",
                                   color: "var(--primary)",
                                   fontWeight: 700,
                                   fontSize: 12,
@@ -1560,7 +1560,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                               fontWeight: 600,
                               padding: "2px 8px",
                               borderRadius: 10,
-                              background: item.isRead ? "#f1f5f9" : "#e0e7ff",
+                              background: item.isRead ? "#f1f5f9" : "#dbe6ff",
                               color: item.isRead ? "#64748b" : "var(--primary)",
                             }}
                           >
