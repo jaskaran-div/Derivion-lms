@@ -108,7 +108,13 @@ const updateCourseStats = async (courseId) => {
 const createContent = async (req, res) => {
   try {
     const { sectionId } = req.params;
-    const { title, type, description, externalUrl, isFree } = req.body;
+    const { title, type, description, externalUrl, isFree, assessmentId } = req.body;
+
+    if (type === 'QUIZ') {
+      if (!assessmentId) return res.status(400).json({ success: false, message: 'Select a quiz.' });
+      const quiz = await prisma.assessment.findUnique({ where: { id: assessmentId }, select: { id: true } });
+      if (!quiz) return res.status(400).json({ success: false, message: 'Quiz not found.' });
+    }
 
     const section = await prisma.section.findUnique({
       where: { id: sectionId },
@@ -126,6 +132,7 @@ const createContent = async (req, res) => {
         type,
         description,
         externalUrl,
+        assessmentId: type === 'QUIZ' ? assessmentId : null,
         isFree: isFree === true || isFree === 'true',
         isPublished: true,
         sectionId,

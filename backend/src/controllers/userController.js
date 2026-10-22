@@ -221,8 +221,8 @@ const getDashboardStats = async (req, res) => {
       prisma.$queryRaw`
   SELECT 
     TO_CHAR("createdAt", 'Mon YYYY') as month,
-    SUM(amount) as revenue,
-    COUNT(*) as count
+    SUM(amount)::float as revenue,
+    COUNT(*)::int as count
   FROM payments
   WHERE status = 'SUCCESS' 
     AND "createdAt" >= NOW() - INTERVAL '6 months'

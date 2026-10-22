@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, authorize, optionalAuth } = require('../middleware/auth');
-const { imageUpload, videoUpload, documentUpload } = require('../middleware/upload');
+const { imageUpload, videoUpload, documentUpload, quizDocUpload } = require('../middleware/upload');
 const {
   getCourses, getCourseBySlug, createCourse, updateCourse, deleteCourse,
   uploadThumbnail, uploadPreviewVideo, togglePublish, adminGetCourses, adminGetCourse,
@@ -14,8 +14,10 @@ const {
   initContentMultipart, completeContentMultipart, abortContentMultipart,
 } = require('../controllers/contentController');
 const {
-  createAssessment, updateAssessment, addQuestion, updateQuestion, deleteQuestion,
-  getAssessment, submitAssessment, getAttempts,
+  listQuizzes, getQuizAdmin, createQuiz, updateQuiz, deleteQuiz,
+  addQuestion, updateQuestion, deleteQuestion, listQuizAttempts,
+  previewImport, bulkAddQuestions,
+  getAssessment, startAttempt, saveProgress, submitAttempt,
 } = require('../controllers/assessmentController');
 const prisma = require('../config/database');
 
@@ -28,6 +30,24 @@ router.post('/content/:id/duration', syncContentDuration);
 const adminAuth = [authenticate, authorize('ADMIN')];
 
 // Course CRUD
+// Quiz bank (admin) — must stay above the /admin/:id course routes
+router.get('/admin/quizzes', ...adminAuth, listQuizzes);
+router.post('/admin/quizzes', ...adminAuth, createQuiz);
+router.get('/admin/quizzes/:id', ...adminAuth, getQuizAdmin);
+router.put('/admin/quizzes/:id', ...adminAuth, updateQuiz);
+router.delete('/admin/quizzes/:id', ...adminAuth, deleteQuiz);
+router.get('/admin/quizzes/:id/attempts', ...adminAuth, listQuizAttempts);
+router.post('/admin/quizzes/:id/questions', ...adminAuth, addQuestion);
+router.post('/admin/quizzes/:id/questions/bulk', ...adminAuth, bulkAddQuestions);
+router.post('/admin/quizzes/:id/import/preview', ...adminAuth, (req, res, next) => {
+  quizDocUpload.single('file')(req, res, (err) => {
+    if (err) return res.status(400).json({ success: false, message: err.message });
+    next();
+  });
+}, previewImport);
+router.put('/admin/questions/:id', ...adminAuth, updateQuestion);
+router.delete('/admin/questions/:id', ...adminAuth, deleteQuestion);
+
 router.get('/admin/all', ...adminAuth, adminGetCourses);
 router.get('/admin/:id', ...adminAuth, adminGetCourse);
 router.post('/admin', ...adminAuth, createCourse);
@@ -56,13 +76,6 @@ router.get('/admin/contents/:id/presigned-url', ...adminAuth, getPresignedUrl);
 router.post('/admin/contents/:id/multipart/init', ...adminAuth, initContentMultipart);
 router.post('/admin/contents/:id/multipart/complete', ...adminAuth, completeContentMultipart);
 router.post('/admin/contents/:id/multipart/abort', ...adminAuth, abortContentMultipart);
-
-// Assessments (admin)
-router.post('/admin/:courseId/assessments', ...adminAuth, createAssessment);
-router.put('/admin/assessments/:id', ...adminAuth, updateAssessment);
-router.post('/admin/assessments/:id/questions', ...adminAuth, addQuestion);
-router.put('/admin/questions/:id', ...adminAuth, updateQuestion);
-router.delete('/admin/questions/:id', ...adminAuth, deleteQuestion);
 
 // Categories
 router.get('/categories/all', async (req, res) => {
@@ -104,8 +117,9 @@ router.post('/student/content/:id/progress', ...studentAuth, updateProgress);
 
 // Assessments (student)
 router.get('/student/assessments/:id', ...studentAuth, getAssessment);
-router.post('/student/assessments/:id/submit', ...studentAuth, submitAssessment);
-router.get('/student/assessments/:id/attempts', ...studentAuth, getAttempts);
+router.post('/student/assessments/:id/start', ...studentAuth, startAttempt);
+router.put('/student/attempts/:attemptId', ...studentAuth, saveProgress);
+router.post('/student/attempts/:attemptId/submit', ...studentAuth, submitAttempt);
 
 // ==================== PUBLIC CERTIFICATE VERIFICATION ====================
 router.get('/verify/:certificateId', async (req, res) => {

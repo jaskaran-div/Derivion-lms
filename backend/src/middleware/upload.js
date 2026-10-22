@@ -40,6 +40,17 @@ const documentUpload = multer({
   ]),
 });
 
+// For quiz question import (.docx / .txt)
+const quizDocUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const name = (file.originalname || '').toLowerCase();
+    if (name.endsWith('.docx') || name.endsWith('.txt')) cb(null, true);
+    else cb(new Error('Upload a Word (.docx) or text (.txt) file.'), false);
+  },
+});
+
 // For image uploads (thumbnails, avatars)
 const imageUpload = multer({
   storage,
@@ -59,4 +70,4 @@ const generalUpload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
 
-module.exports = { videoUpload, documentUpload, imageUpload, generalUpload };
+module.exports = { videoUpload, documentUpload, imageUpload, generalUpload, quizDocUpload };

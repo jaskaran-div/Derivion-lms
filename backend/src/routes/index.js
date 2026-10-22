@@ -41,6 +41,7 @@ const {
   getOverview, getCourseAnalytics, getAtRiskStudents, getClassReport, exportStudentsCSV,
 } = require('../controllers/analyticsController');
 const { listAuditLogs } = require('../controllers/auditController');
+const { listSessions, createSession, updateSession, deleteSession } = require('../controllers/mentorController');
 const prisma = require('../config/database');
 const { uploadToS3, generateS3Key } = require('../config/aws');
 const { imageUpload } = require('../middleware/upload');
@@ -475,6 +476,12 @@ router.get('/certificates', ...studentAuth, async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to fetch certificates.' });
   }
 });
+
+// Mentor sessions (everyone can view; admin manages)
+router.get('/mentor-sessions', ...studentAuth, listSessions);
+router.post('/admin/mentor-sessions', ...adminAuth, createSession);
+router.put('/admin/mentor-sessions/:id', ...adminAuth, updateSession);
+router.delete('/admin/mentor-sessions/:id', ...adminAuth, deleteSession);
 
 // Payment routes
 router.post('/payments/create-order', ...studentAuth, createOrder);

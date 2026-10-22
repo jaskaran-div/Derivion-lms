@@ -321,6 +321,7 @@ model User {
   importJobs           StudentImportJob[] @relation("ImportJobs")
   auditLogs            AuditLog[]   @relation("AuditLogs")
   revokedTokens        RevokedToken[]
+  mentorSessions       MentorSession[] @relation("MentorSessionCreator")
 
   @@index([email])
   @@index([username])
@@ -443,6 +444,7 @@ model Course {
   certificates  Certificate[]
   schoolAssignments SchoolCourseAssignment[]
   classAssignments  ClassCourseAssignment[]
+  mentorSessions    MentorSession[]
 
   @@index([status, categoryId])
   @@index([slug])
@@ -481,13 +483,16 @@ model Content {
   externalUrl   String?
   fileSize      Int?
   mimeType      String?
+  assessmentId  String?     // set when type = QUIZ
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   section       Section     @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  assessment    Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
   progress      ContentProgress[]
 
   @@index([sectionId])
+  @@index([assessmentId])
   @@map("contents")
 }
 
@@ -514,7 +519,7 @@ model Enrollment {
 model Payment {
   id               String        @id @default(uuid())
   userId           String
-  courseId         String
+  courseId         String?       // null once the course is deleted; payment record is kept
   amount           Decimal       @db.Decimal(10, 2)
   currency         String        @default("INR")
   status           PaymentStatus @default(PENDING)
@@ -529,7 +534,7 @@ model Payment {
   updatedAt        DateTime      @updatedAt
 
   user             User          @relation(fields: [userId], references: [id])
-  course           Course        @relation(fields: [courseId], references: [id])
+  course           Course?       @relation(fields: [courseId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([courseId])
@@ -562,8 +567,8 @@ model Assessment {
   id            String         @id @default(uuid())
   title         String
   description   String?
-  type          AssessmentType
-  courseId      String
+  type          AssessmentType @default(QUIZ)
+  courseId      String?        // legacy; quizzes are attached to courses via Content
   passingScore  Int            @default(60)
   timeLimit     Int?           // in minutes
   maxAttempts   Int            @default(3)
@@ -574,9 +579,10 @@ model Assessment {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course        Course?        @relation(fields: [courseId], references: [id], onDelete: SetNull)
   questions     Question[]
   attempts      AssessmentAttempt[]
+  contents      Content[]
 
   @@index([courseId])
   @@map("assessments")
@@ -607,12 +613,19 @@ model AssessmentAttempt {
   id           String     @id @default(uuid())
   userId       String
   assessmentId String
-  score        Decimal    @db.Decimal(5, 2)
-  isPassed     Boolean
-  answers      Json
+  status       String     @default("IN_PROGRESS") // IN_PROGRESS | SUBMITTED
+  score        Decimal    @default(0) @db.Decimal(5, 2)
+  isPassed     Boolean    @default(false)
+  answers      Json       @default("{}") // in progress: { questionId: optionIndex }; submitted: graded array
+  questionOrder Json?     // per-attempt question/option order
+  earnedPoints Int        @default(0)
+  totalPoints  Int        @default(0)
+  tabSwitches  Int        @default(0)
+  autoSubmitted Boolean   @default(false)
   timeTaken    Int?
   startedAt    DateTime   @default(now())
-  completedAt  DateTime   @default(now())
+  expiresAt    DateTime?
+  completedAt  DateTime?
 
   user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
@@ -700,6 +713,31 @@ model Notification {
 
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+// ==================== MENTOR SESSIONS ====================
+
+model MentorSession {
+  id           String   @id @default(uuid())
+  title        String
+  description  String?
+  mentorName   String
+  courseId     String
+  startTime    DateTime
+  endTime      DateTime
+  meetingLink  String?
+  recordingUrl String?
+  resources    String?  // Notes / extra links added after the session
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  course       Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdBy    User?    @relation("MentorSessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([startTime])
+  @@index([courseId])
+  @@map("mentor_sessions")
 }
 
 // ==================== SETTINGS ====================

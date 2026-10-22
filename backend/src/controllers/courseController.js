@@ -96,6 +96,7 @@ const getCourseBySlug = async (req, res) => {
                 isFree: true,
                 order: true,
                 isPublished: true,
+                assessmentId: true,
               },
             },
           },
@@ -240,6 +241,8 @@ const deleteCourse = async (req, res) => {
     await prisma.course.delete({ where: { id } });
     res.json({ success: true, message: 'Course deleted.' });
   } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ success: false, message: 'Course not found.' });
+    console.error('deleteCourse error:', error);
     res.status(500).json({ success: false, message: 'Failed to delete course.' });
   }
 };
@@ -355,7 +358,12 @@ const adminGetCourse = async (req, res) => {
         category: true,
         sections: {
           orderBy: { order: 'asc' },
-          include: { contents: { orderBy: { order: 'asc' } } },
+          include: {
+            contents: {
+              orderBy: { order: 'asc' },
+              include: { assessment: { select: { id: true, title: true, isPublished: true } } },
+            },
+          },
         },
         assessments: {
           include: { questions: { orderBy: { order: 'asc' } } },
