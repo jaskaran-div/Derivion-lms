@@ -8,6 +8,7 @@ import { isAxiosError } from "axios";
 import toast from "react-hot-toast";
 import { ArrowLeft, Plus, Trash2, Edit, Save, CheckCircle, ToggleLeft, ToggleRight, X, Upload } from "lucide-react";
 import QuizImportModal from "@/components/quiz/QuizImportModal";
+import QuizAnalytics from "@/components/quiz/QuizAnalytics";
 
 interface Question {
   id: string;
@@ -72,25 +73,26 @@ export default function QuizEditorPage() {
   const [attempts, setAttempts] = useState<Attempt[] | null>(null);
   const [showImport, setShowImport] = useState(false);
 
-  const load = async () => {
-    try {
-      const res = await quizAPI.get(id);
-      const q: Quiz = res.data.data;
-      setQuiz(q);
-      setSettings({
-        title: q.title,
-        description: q.description || "",
-        timeLimit: q.timeLimit ? String(q.timeLimit) : "",
-        passingScore: String(q.passingScore),
-        maxAttempts: String(q.maxAttempts),
-        shuffleQuestions: q.shuffleQuestions,
-        shuffleOptions: q.shuffleOptions,
-        showResultsAfter: q.showResultsAfter,
+  const load = () => {
+    return quizAPI.get(id)
+      .then((res) => {
+        const q: Quiz = res.data.data;
+        setQuiz(q);
+        setSettings({
+          title: q.title,
+          description: q.description || "",
+          timeLimit: q.timeLimit ? String(q.timeLimit) : "",
+          passingScore: String(q.passingScore),
+          maxAttempts: String(q.maxAttempts),
+          shuffleQuestions: q.shuffleQuestions,
+          shuffleOptions: q.shuffleOptions,
+          showResultsAfter: q.showResultsAfter,
+        });
+      })
+      .catch(() => {
+        toast.error("Quiz not found.");
+        router.push("/admin/quizzes");
       });
-    } catch {
-      toast.error("Quiz not found.");
-      router.push("/admin/quizzes");
-    }
   };
 
   useEffect(() => { if (id) load(); }, [id]);
@@ -433,6 +435,8 @@ export default function QuizEditorPage() {
             </div>
           </div>
         ) : (
+          <>
+          <QuizAnalytics quizId={id} />
           <div className="table-container">
             <table>
               <thead>
@@ -462,6 +466,7 @@ export default function QuizEditorPage() {
               </tbody>
             </table>
           </div>
+          </>
         )
       )}
     </AppLayout>

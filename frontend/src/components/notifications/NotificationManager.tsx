@@ -2,32 +2,14 @@
 
 import { useState, useEffect, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { usersAPI, chatAPI } from "@/lib/api";
+import { usersAPI, chatAPI, apiErrorMessage } from "@/lib/api";
 import toast from "react-hot-toast";
 import {
-  Send,
-  Bell,
-  Users,
-  User,
-  Search,
-  CheckCircle2,
-  AlertTriangle,
-  Info,
-  AlertCircle,
-  X,
-  Sparkles,
-  Shield,
-  GraduationCap,
-  History,
-  Trash2,
-  RefreshCw,
-  Clock,
-  ArrowRight,
-  ExternalLink,
-  CheckCheck,
-  Radio,
-  Layers,
+  Send, Bell, Users, User, Search, X, Sparkles, History, Clock, ArrowRight, CheckCheck,
 } from "lucide-react";
+import { useNow } from "@/lib/useNow";
+import NotificationHistory from "./NotificationHistory";
+import { notifTypes, adminAudienceOptions, teacherAudienceOptions, adminTemplates, teacherTemplates } from "./notificationConfig";
 
 interface UserProfile {
   id: string;
@@ -55,9 +37,14 @@ interface NotificationManagerProps {
 }
 
 export default function NotificationManager({ requiredRole }: NotificationManagerProps) {
+  const now = useNow();
   const [activeTab, setActiveTab] = useState<"COMPOSE" | "HISTORY">("COMPOSE");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"BULK" | "INDIVIDUAL">("BULK");
+  // A recipient pre-selected from another page (?recipientId=…) opens the individual mode
+  const [presetRecipientId] = useState(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("recipientId") : null
+  );
+  const [mode, setMode] = useState<"BULK" | "INDIVIDUAL">(presetRecipientId ? "INDIVIDUAL" : "BULK");
 
   const [formData, setFormData] = useState({
     title: "",
@@ -69,71 +56,62 @@ export default function NotificationManager({ requiredRole }: NotificationManage
 
   // Individual recipient selection
   const [searchQuery, setSearchQuery] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
+  // Results are tagged with their query; "searching" means the current query has no results yet
+  const [searchState, setSearchState] = useState<{ q: string; results: UserProfile[] }>({ q: "", results: [] });
+  const trimmedQuery = searchQuery.trim();
+  const searchResults = trimmedQuery && searchState.q === trimmedQuery ? searchState.results : [];
+  const searching = mode === "INDIVIDUAL" && Boolean(trimmedQuery) && searchState.q !== trimmedQuery;
   const [selectedRecipient, setSelectedRecipient] = useState<UserProfile | null>(null);
 
   // Sent History
   const [history, setHistory] = useState<SentNotification[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [historySearch, setHistorySearch] = useState("");
 
   // Check URL query parameters for pre-selected recipient (e.g. from user table)
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const recId = params.get("recipientId");
-      if (recId) {
-        setMode("INDIVIDUAL");
-        chatAPI
-          .searchUsers(recId)
-          .then((res) => {
-            const found =
-              res.data.data?.find((u: any) => u.id === recId) || res.data.data?.[0];
-            if (found) setSelectedRecipient(found);
-          })
-          .catch(() => {});
-      }
-    }
-  }, []);
+    if (!presetRecipientId) return;
+    chatAPI
+      .searchUsers(presetRecipientId)
+      .then((res) => {
+        const users: UserProfile[] = res.data.data || [];
+        const found = users.find((u) => u.id === presetRecipientId) || users[0];
+        if (found) setSelectedRecipient(found);
+      })
+      .catch(() => {});
+  }, [presetRecipientId]);
 
   // Search users debounce
   useEffect(() => {
-    if (mode !== "INDIVIDUAL") return;
-    const q = searchQuery.trim();
-    if (!q) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-
-    setSearching(true);
-    const timer = setTimeout(async () => {
-      try {
-        const res = await chatAPI.searchUsers(q);
-        setSearchResults(res.data.data || []);
-      } catch (err) {
-        console.error("Search failed:", err);
-      } finally {
-        setSearching(false);
-      }
+    const q = trimmedQuery;
+    if (mode !== "INDIVIDUAL" || !q) return;
+    const timer = setTimeout(() => {
+      chatAPI
+        .searchUsers(q)
+        .then((res) => setSearchState({ q, results: res.data.data || [] }))
+        .catch((err) => {
+          console.error("Search failed:", err);
+          setSearchState({ q, results: [] });
+        });
     }, 280);
-
     return () => clearTimeout(timer);
-  }, [searchQuery, mode]);
+  }, [trimmedQuery, mode]);
 
   // Load sent history
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(
+    () =>
+      usersAPI
+        .getNotificationHistory()
+        .then((res) => setHistory(res.data.data || []))
+        .catch((err) => console.error("Failed to load notification history:", err))
+        .finally(() => setLoadingHistory(false)),
+    []
+  );
+
+  const refreshHistory = () => {
     setLoadingHistory(true);
-    try {
-      const res = await usersAPI.getNotificationHistory();
-      setHistory(res.data.data || []);
-    } catch (err) {
-      console.error("Failed to load notification history:", err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, []);
+    loadHistory();
+  };
 
   useEffect(() => {
     loadHistory();
@@ -156,7 +134,15 @@ export default function NotificationManager({ requiredRole }: NotificationManage
 
     setLoading(true);
     try {
-      const payload: any = {
+      const payload: {
+        title: string;
+        message: string;
+        type: string;
+        link: string;
+        mode: "BULK" | "INDIVIDUAL";
+        recipientId?: string;
+        target?: string;
+      } = {
         title: formData.title.trim(),
         message: formData.message.trim(),
         type: formData.type,
@@ -186,8 +172,8 @@ export default function NotificationManager({ requiredRole }: NotificationManage
 
       // Refresh sent history
       loadHistory();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to send notification.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to send notification."));
     } finally {
       setLoading(false);
     }
@@ -204,142 +190,13 @@ export default function NotificationManager({ requiredRole }: NotificationManage
     }
   };
 
-  const notifTypes = [
-    {
-      value: "INFO",
-      label: "Information",
-      desc: "Platform updates, tips, announcements",
-      icon: <Info size={16} />,
-      color: "#2563eb",
-      bg: "#eff6ff",
-      border: "#bfdbfe",
-      glow: "rgba(37, 99, 235, 0.15)",
-    },
-    {
-      value: "SUCCESS",
-      label: "Success",
-      desc: "Completions, rewards, achievements",
-      icon: <CheckCircle2 size={16} />,
-      color: "#059669",
-      bg: "#ecfdf5",
-      border: "#a7f3d0",
-      glow: "rgba(5, 150, 105, 0.15)",
-    },
-    {
-      value: "WARNING",
-      label: "Notice / Alert",
-      desc: "Deadlines, pending actions, reminders",
-      icon: <AlertTriangle size={16} />,
-      color: "#d97706",
-      bg: "#fffbeb",
-      border: "#fde68a",
-      glow: "rgba(217, 119, 6, 0.15)",
-    },
-    {
-      value: "ERROR",
-      label: "Urgent",
-      desc: "Critical alerts, account action needed",
-      icon: <AlertCircle size={16} />,
-      color: "#dc2626",
-      bg: "#fef2f2",
-      border: "#fecaca",
-      glow: "rgba(220, 38, 38, 0.15)",
-    },
-  ];
 
-  const adminAudienceOptions = [
-    {
-      value: "ALL",
-      title: "All Users",
-      desc: "Every registered student, teacher, and admin",
-      icon: <Radio size={18} />,
-    },
-    {
-      value: "STUDENTS",
-      title: "Students Only",
-      desc: "All learners currently enrolled across the platform",
-      icon: <GraduationCap size={18} />,
-    },
-    {
-      value: "TEACHERS",
-      title: "Teachers Only",
-      desc: "Instructor and faculty accounts exclusively",
-      icon: <Shield size={18} />,
-    },
-  ];
 
-  const teacherAudienceOptions = [
-    {
-      value: "ALL",
-      title: "All Students",
-      desc: "Broadcast notification to all student accounts",
-      icon: <Radio size={18} />,
-    },
-    {
-      value: "MY_STUDENTS",
-      title: "My Students",
-      desc: "Students created by or enrolled in your courses",
-      icon: <Users size={18} />,
-    },
-  ];
 
   const audienceOptions =
     requiredRole === "TEACHER" ? teacherAudienceOptions : adminAudienceOptions;
 
-  const adminTemplates = [
-    {
-      title: "Welcome to Derivion LMS! 🎓",
-      message:
-        "We're thrilled to welcome you to our learning community. Explore courses, track your lessons, and boost your skills today!",
-      type: "SUCCESS",
-      link: "/courses",
-    },
-    {
-      title: "Exciting New Course Released 🚀",
-      message:
-        "Check out our newest curriculum modules now available in the course catalog. Enroll now to start learning!",
-      type: "INFO",
-      link: "/courses",
-    },
-    {
-      title: "Scheduled Maintenance Window ⚙️",
-      message:
-        "We will be deploying server optimizations tonight. You may experience brief intermittent pauses for approximately 10 minutes.",
-      type: "WARNING",
-      link: "/dashboard",
-    },
-    {
-      title: "Exclusive Enrollment Perk 🎉",
-      message:
-        "Special opportunity for active learners! Take advantage of newly released study materials and certification pathways.",
-      type: "SUCCESS",
-      link: "/dashboard",
-    },
-  ];
 
-  const teacherTemplates = [
-    {
-      title: "New Assignment & Lesson Ready 📝",
-      message:
-        "A new lesson and quiz have been published. Please review your dashboard and complete the activities before the upcoming deadline.",
-      type: "INFO",
-      link: "/dashboard",
-    },
-    {
-      title: "Great Job on Recent Assessment! 🌟",
-      message:
-        "Outstanding performance on your recent coursework and quizzes! Keep up the brilliant momentum.",
-      type: "SUCCESS",
-      link: "/dashboard",
-    },
-    {
-      title: "Reminder: Review Session Tomorrow ⏰",
-      message:
-        "Don't forget our upcoming live review session tomorrow. Please come prepared with your questions and notes.",
-      type: "WARNING",
-      link: "/dashboard",
-    },
-  ];
 
   const templates = requiredRole === "TEACHER" ? teacherTemplates : adminTemplates;
 
@@ -348,7 +205,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
 
   const formatRelativeTime = (dateStr: string) => {
     try {
-      const diff = Date.now() - new Date(dateStr).getTime();
+      const diff = now - new Date(dateStr).getTime();
       const mins = Math.floor(diff / 60000);
       if (mins < 1) return "Just now";
       if (mins < 60) return `${mins}m ago`;
@@ -881,7 +738,6 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                                 onClick={() => {
                                   setSelectedRecipient(u);
                                   setSearchQuery("");
-                                  setSearchResults([]);
                                 }}
                                 style={{
                                   padding: "12px 16px",
@@ -1346,247 +1202,15 @@ export default function NotificationManager({ requiredRole }: NotificationManage
           </div>
         </div>
       ) : (
-        /* ================= SENT HISTORY VIEW ================= */
-        <div
-          style={{
-            background: "#ffffff",
-            borderRadius: 16,
-            border: "1px solid #e2e8f0",
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
-            overflow: "hidden",
-          }}
-        >
-          {/* Header */}
-          <div
-            style={{
-              padding: "20px 24px",
-              borderBottom: "1px solid #f1f5f9",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: 12,
-              background: "#fafafa",
-            }}
-          >
-            <div>
-              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: "#0f172a" }}>
-                Sent Notifications Log
-              </h2>
-              <p style={{ fontSize: 12, color: "#64748b", margin: "2px 0 0 0" }}>
-                Recent notifications delivered to users on the platform.
-              </p>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ position: "relative" }}>
-                <Search
-                  size={14}
-                  style={{
-                    position: "absolute",
-                    left: 10,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    color: "#94a3b8",
-                  }}
-                />
-                <input
-                  type="text"
-                  placeholder="Filter notifications…"
-                  value={historySearch}
-                  onChange={(e) => setHistorySearch(e.target.value)}
-                  style={{
-                    paddingLeft: 30,
-                    height: 36,
-                    fontSize: 12,
-                    borderRadius: 8,
-                    border: "1px solid #cbd5e1",
-                    width: 200,
-                  }}
-                />
-              </div>
-
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={loadHistory}
-                disabled={loadingHistory}
-                style={{ height: 36, padding: "0 12px", fontSize: 12 }}
-              >
-                <RefreshCw size={13} className={loadingHistory ? "animate-spin" : ""} /> Refresh
-              </button>
-            </div>
-          </div>
-
-          {/* History Table */}
-          <div className="table-container" style={{ margin: 0, border: "none", boxShadow: "none" }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Recipient / Audience</th>
-                  <th>Type</th>
-                  <th>Notification Details</th>
-                  <th>Link</th>
-                  <th>Time Sent</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {loadingHistory ? (
-                  <tr>
-                    <td colSpan={7} style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8" }}>
-                      Loading sent history…
-                    </td>
-                  </tr>
-                ) : filteredHistory.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} style={{ textAlign: "center", padding: "48px 0" }}>
-                      <div className="empty-state">
-                        <div className="empty-state-icon">🔔</div>
-                        <div className="empty-state-title">No notifications sent yet</div>
-                        <div className="empty-state-text">
-                          Use the &quot;Compose&quot; tab to send your first platform notification.
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredHistory.map((item) => {
-                    const typeCfg =
-                      notifTypes.find((t) => t.value === item.type) || notifTypes[0];
-
-                    return (
-                      <tr key={item.id}>
-                        {/* Recipient */}
-                        <td>
-                          {item.user ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                              <div
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: "50%",
-                                  background: "#dbe6ff",
-                                  color: "var(--primary)",
-                                  fontWeight: 700,
-                                  fontSize: 12,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                {item.user.firstName?.charAt(0) || "U"}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: 13, color: "#0f172a" }}>
-                                  {item.user.firstName} {item.user.lastName}
-                                </div>
-                                <div style={{ fontSize: 11, color: "#64748b" }}>
-                                  {item.user.email}
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748b", fontSize: 13 }}>
-                              <Users size={14} />
-                              <span>Platform Recipient</span>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Type badge */}
-                        <td>
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              padding: "3px 8px",
-                              borderRadius: 8,
-                              fontSize: 11,
-                              fontWeight: 700,
-                              background: typeCfg.bg,
-                              color: typeCfg.color,
-                            }}
-                          >
-                            {typeCfg.icon}
-                            {item.type}
-                          </span>
-                        </td>
-
-                        {/* Title & Message */}
-                        <td style={{ maxWidth: 320 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: "#0f172a", marginBottom: 2 }}>
-                            {item.title}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              color: "#64748b",
-                              lineHeight: 1.4,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {item.message}
-                          </div>
-                        </td>
-
-                        {/* Link */}
-                        <td>
-                          {item.link ? (
-                            <code style={{ fontSize: 11, background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>
-                              {item.link}
-                            </code>
-                          ) : (
-                            <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>
-                          )}
-                        </td>
-
-                        {/* Time */}
-                        <td>
-                          <span style={{ fontSize: 12, color: "#64748b" }}>
-                            {formatRelativeTime(item.createdAt)}
-                          </span>
-                        </td>
-
-                        {/* Read Status */}
-                        <td>
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              padding: "2px 8px",
-                              borderRadius: 10,
-                              background: item.isRead ? "#f1f5f9" : "#dbe6ff",
-                              color: item.isRead ? "#64748b" : "var(--primary)",
-                            }}
-                          >
-                            {item.isRead ? "Read" : "Unread"}
-                          </span>
-                        </td>
-
-                        {/* Delete action */}
-                        <td>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-icon btn-sm"
-                            onClick={() => handleDeleteNotification(item.id)}
-                            title="Delete notification"
-                          >
-                            <Trash2 size={14} color="#ef4444" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <NotificationHistory
+          items={filteredHistory}
+          loading={loadingHistory}
+          search={historySearch}
+          onSearchChange={setHistorySearch}
+          onRefresh={refreshHistory}
+          onDelete={handleDeleteNotification}
+          formatTime={formatRelativeTime}
+        />
       )}
     </AppLayout>
   );

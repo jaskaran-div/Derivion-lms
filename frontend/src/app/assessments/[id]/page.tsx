@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
-import { coursesAPI, quizAPI } from "@/lib/api";
+import { quizAPI } from "@/lib/api";
 import LearnerContentProtection from "@/components/content/LearnerContentProtection";
 import { isAxiosError } from "axios";
 import toast from "react-hot-toast";
@@ -110,16 +110,18 @@ function AssessmentInner() {
   useEffect(() => { answersRef.current = answers; }, [answers]);
   useEffect(() => { tabRef.current = tabSwitches; }, [tabSwitches]);
 
-  const loadInfo = useCallback(async () => {
-    try {
-      const res = await quizAPI.getInfo(id, contentId);
-      setInfo(res.data.data);
-    } catch (err) {
-      toast.error(errMsg(err, "Quiz not available."));
-      router.back();
-    } finally {
-      setLoading(false);
-    }
+  const loadInfo = useCallback(() => {
+    return quizAPI.getInfo(id, contentId)
+      .then((res) => {
+        setInfo(res.data.data);
+      })
+      .catch((err) => {
+        toast.error(errMsg(err, "Quiz not available."));
+        router.back();
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [id, contentId, router]);
 
   useEffect(() => { if (id) loadInfo(); }, [id, loadInfo]);
@@ -171,25 +173,22 @@ function AssessmentInner() {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       if (auto) toast("Time is up — your quiz was submitted automatically.", { icon: "⏰" });
       else toast.success("Quiz submitted!");
-      const lessonId = contentId ?? info?.content?.id;
-      if (r.isPassed && lessonId) {
-        coursesAPI.updateProgress(lessonId, { isCompleted: true }).catch(() => {});
-      }
+      // Passing completes the lesson on the server (course progress and certificate included)
     } catch (err) {
       submittedRef.current = false;
       toast.error(errMsg(err, "Failed to submit. Check your connection and try again."));
     } finally {
       setSubmitting(false);
     }
-  }, [attemptId, contentId, info?.content?.id]);
+  }, [attemptId]);
 
   // Countdown
   useEffect(() => {
     if (phase !== "exam" || deadline === null) return;
     const tick = () => {
-      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
-      setTimeLeft(left);
-      if (left === 0) submit(true);
+    const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    setTimeLeft(left);
+    if (left === 0) submit(true);
     };
     tick();
     const t = setInterval(tick, 1000);
@@ -226,11 +225,11 @@ function AssessmentInner() {
     if (phase !== "exam") return;
     let lastHit = 0;
     const onLeave = () => {
-      const now = Date.now();
-      if (submittedRef.current || now - lastHit < 1500) return; // blur + visibilitychange fire together
-      lastHit = now;
-      setTabSwitches((n) => n + 1);
-      toast.error("Leaving the quiz window is recorded and visible to your instructor.", { id: "tab-warning", duration: 4000 });
+    const now = Date.now();
+    if (submittedRef.current || now - lastHit < 1500) return; // blur + visibilitychange fire together
+    lastHit = now;
+    setTabSwitches((n) => n + 1);
+    toast.error("Leaving the quiz window is recorded and visible to your instructor.", { id: "tab-warning", duration: 4000 });
     };
     const onVisibility = () => { if (document.visibilityState === "hidden") onLeave(); };
     const onBeforeUnload = (e: BeforeUnloadEvent) => { if (!submittedRef.current) e.preventDefault(); };

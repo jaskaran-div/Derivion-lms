@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { Outfit } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
+import ClientErrorReporter from "@/components/ClientErrorReporter";
 
 export const metadata: Metadata = {
   title: {
@@ -12,18 +14,19 @@ export const metadata: Metadata = {
   keywords: ["LMS", "online learning", "courses", "education", "e-learning"],
 };
 
+// Self-hosted by Next (no render-blocking request to Google)
+const outfit = Outfit({ subsets: ["latin"], weight: ["300", "400", "500", "600", "700", "800"], variable: "--font-outfit", display: "swap" });
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      </head>
+    <html lang="en" className={outfit.variable}>
       <body>
+        <a href="#main-content" className="skip-link">Skip to content</a>
+        <ClientErrorReporter />
         {children}
         <Toaster
           position="top-right"

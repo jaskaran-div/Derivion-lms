@@ -4,10 +4,7 @@ import { useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { analyticsAPI } from "@/lib/api";
 import {
-  Users, BookOpen, Award, TrendingUp, BarChart3,
-  AlertTriangle, Download, RefreshCw, CheckCircle,
-  GraduationCap, Building2, DollarSign, Activity,
-  Clock, Eye,
+  Users, BookOpen, Award, TrendingUp, BarChart3, AlertTriangle, Download, RefreshCw, CheckCircle, GraduationCap, DollarSign, Activity, Clock,
 } from "lucide-react";
 
 interface OverviewData {
@@ -23,9 +20,21 @@ interface OverviewData {
     avgAssessmentScore: string;
     notStartedStudents: number;
   };
-  enrollmentsByMonth: { month: string; count: bigint }[];
+  enrollmentsByMonth: { month: string; count: number | string }[];
   revenueByMonth: { month: string; revenue: number }[];
-  popularCourses: any[];
+  popularCourses: { id: string; title: string; totalStudents: number; thumbnail?: string; level?: string }[];
+}
+
+interface CourseAnalytics {
+  id: string;
+  title: string;
+  thumbnail?: string;
+  level?: string;
+  totalStudents: number;
+  completedStudents: number;
+  completionRate: string | number;
+  assessmentCount: number;
+  sectionCount: number;
 }
 
 interface AtRiskStudent {
@@ -41,34 +50,27 @@ type Tab = "overview" | "courses" | "at-risk";
 export default function AnalyticsPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [overview, setOverview] = useState<OverviewData | null>(null);
-  const [courseData, setCourseData] = useState<any[]>([]);
+  const [courseData, setCourseData] = useState<CourseAnalytics[]>([]);
   const [atRisk, setAtRisk] = useState<AtRiskStudent[]>([]);
-  const [loading, setLoading] = useState(true);
+  // The tab whose data is on screen; anything else means that tab is still loading
+  const [loadedTab, setLoadedTab] = useState<Tab | null>(null);
+  const loading = loadedTab !== tab;
   const [exporting, setExporting] = useState(false);
+
+
+  const loadTab = (t: Tab) => {
+    const request =
+      t === "overview"
+        ? analyticsAPI.getOverview().then((res) => setOverview(res.data.data))
+        : t === "courses"
+          ? analyticsAPI.getCourses({ limit: 50 }).then((res) => setCourseData(res.data.data.courses))
+          : analyticsAPI.getAtRisk().then((res) => setAtRisk(res.data.data));
+    return request.catch((err) => console.error(err)).finally(() => setLoadedTab(t));
+  };
 
   useEffect(() => {
     loadTab(tab);
   }, [tab]);
-
-  const loadTab = async (t: Tab) => {
-    setLoading(true);
-    try {
-      if (t === "overview") {
-        const res = await analyticsAPI.getOverview();
-        setOverview(res.data.data);
-      } else if (t === "courses") {
-        const res = await analyticsAPI.getCourses({ limit: 50 });
-        setCourseData(res.data.data.courses);
-      } else if (t === "at-risk") {
-        const res = await analyticsAPI.getAtRisk();
-        setAtRisk(res.data.data);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -152,7 +154,7 @@ export default function AnalyticsPage() {
                     <div className="kpi-body">
                       <div className="kpi-value">{s.totalStudents.toLocaleString()}</div>
                       <div className="kpi-label">Total Students</div>
-                      <div className="kpi-sub">{s.notStartedStudents} haven't started yet</div>
+                      <div className="kpi-sub">{s.notStartedStudents} haven&apos;t started yet</div>
                     </div>
                   </div>
                   <div className="kpi-card kpi-purple">
@@ -202,7 +204,7 @@ export default function AnalyticsPage() {
                   <div className="atRisk-banner">
                     <AlertTriangle size={18} />
                     <div>
-                      <strong>{s.notStartedStudents} students</strong> are enrolled but haven't started any lesson yet.
+                      <strong>{s.notStartedStudents} students</strong> are enrolled but haven&apos;t started any lesson yet.
                     </div>
                     <button className="atRisk-btn" onClick={() => setTab("at-risk")}>
                       View At-Risk Students →
@@ -240,8 +242,8 @@ export default function AnalyticsPage() {
                   <div className="section-card">
                     <h3 className="section-title">Enrollments (Last 6 Months)</h3>
                     <div className="month-chart">
-                      {overview.enrollmentsByMonth.map((m: any) => {
-                        const max = Math.max(...overview.enrollmentsByMonth.map((x: any) => Number(x.count)));
+                      {overview.enrollmentsByMonth.map((m) => {
+                        const max = Math.max(...overview.enrollmentsByMonth.map((x) => Number(x.count)));
                         const pct = max > 0 ? (Number(m.count) / max) * 100 : 0;
                         return (
                           <div key={m.month} className="month-bar-wrap">
@@ -336,7 +338,7 @@ export default function AnalyticsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {atRisk.map((item: any) => (
+                        {atRisk.map((item) => (
                           <tr key={item.id}>
                             <td>
                               <div className="student-cell">

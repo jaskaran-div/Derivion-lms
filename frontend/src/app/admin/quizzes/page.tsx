@@ -34,15 +34,17 @@ export default function AdminQuizzesPage() {
   const [form, setForm] = useState({ title: "", description: "", timeLimit: "30", passingScore: "60", maxAttempts: "1" });
   const [saving, setSaving] = useState(false);
 
-  const load = async () => {
-    try {
-      const res = await quizAPI.list();
-      setQuizzes(res.data.data);
-    } catch {
-      toast.error("Failed to load quizzes.");
-    } finally {
-      setLoading(false);
-    }
+  const load = () => {
+    return quizAPI.list()
+      .then((res) => {
+        setQuizzes(res.data.data);
+      })
+      .catch(() => {
+        toast.error("Failed to load quizzes.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   useEffect(() => { load(); }, []);

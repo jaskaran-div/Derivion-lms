@@ -2,12 +2,9 @@
 
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { schoolsAPI, usersAPI } from "@/lib/api";
+import { schoolsAPI, apiErrorMessage } from "@/lib/api";
 import {
-  Building2, Plus, Search, Users, BookOpen,
-  ChevronRight, GraduationCap, Settings,
-  MapPin, Phone, Mail, BarChart3, Layers,
-  Edit, Trash2, CheckCircle, XCircle,
+  Building2, Plus, Search, Users, BookOpen, ChevronRight, MapPin, Phone, Mail, Layers, Edit, Trash2, CheckCircle, XCircle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -38,20 +35,22 @@ export default function SchoolsManagementPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => { loadSchools(); }, [search]);
 
-  const loadSchools = async () => {
-    setLoading(true);
-    try {
-      const res = await schoolsAPI.list({ search: search || undefined, limit: 50 });
-      setSchools(res.data.data.schools);
-      setTotal(res.data.data.pagination.total);
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+  const loadSchools = () => {
+    return schoolsAPI.list({ search: search || undefined, limit: 50 })
+      .then((res) => {
+        setSchools(res.data.data.schools);
+        setTotal(res.data.data.pagination.total);
+      })
+      .catch((err) => {
+        console.error(err);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
+
+  useEffect(() => { loadSchools(); }, [search]);
 
   const openCreate = () => {
     setEditingSchool(null);
@@ -86,8 +85,8 @@ export default function SchoolsManagementPage() {
       }
       setShowModal(false);
       loadSchools();
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Failed to save school.");
+    } catch (err) {
+      setError(apiErrorMessage(err, "Failed to save school."));
     } finally {
       setSaving(false);
     }

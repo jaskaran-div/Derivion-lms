@@ -6,6 +6,7 @@ import { usersAPI, forumAPI } from "@/lib/api";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { MessageSquare, Plus, Eye, Clock, Pin, Search } from "lucide-react";
+import { useNow } from "@/lib/useNow";
 
 interface ForumPost {
   id: string;
@@ -20,46 +21,50 @@ interface ForumPost {
 }
 
 export default function ForumPage() {
+  const now = useNow();
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [loading, setLoading] = useState(true);
-  const [enrollments, setEnrollments] = useState<any[]>([]);
+  const [enrollments, setEnrollments] = useState<{ course: { id: string; title: string } }[]>([]);
   const [selectedCourse, setSelectedCourse] = useState("");
   const [search, setSearch] = useState("");
   const [showNewPost, setShowNewPost] = useState(false);
   const [newPost, setNewPost] = useState({ title: "", content: "", courseId: "" });
   const [posting, setPosting] = useState(false);
 
+  const loadEnrollments = () => {
+    return usersAPI.getEnrollments()
+      .then((res) => {
+        const enrolls = res.data.data;
+        setEnrollments(enrolls);
+        if (enrolls.length > 0) {
+          setSelectedCourse(enrolls[0].course.id);
+          setNewPost(prev => ({ ...prev, courseId: enrolls[0].course.id }));
+        } else {
+          setLoading(false); // nothing to load posts for
+        }
+      })
+      .catch(() => setLoading(false));
+  };
+
+  const loadPosts = (courseId: string) => {
+    return forumAPI.getPosts(courseId)
+      .then((res) => {
+        setPosts(res.data.data.posts);
+      })
+      .catch(() => {
+        toast.error("Failed to load posts.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
   useEffect(() => {
     loadEnrollments();
   }, []);
-
   useEffect(() => {
     if (selectedCourse) loadPosts(selectedCourse);
   }, [selectedCourse]);
-
-  const loadEnrollments = async () => {
-    try {
-      const res = await usersAPI.getEnrollments();
-      const enrolls = res.data.data;
-      setEnrollments(enrolls);
-      if (enrolls.length > 0) {
-        setSelectedCourse(enrolls[0].course.id);
-        setNewPost(prev => ({ ...prev, courseId: enrolls[0].course.id }));
-      }
-    } catch {}
-  };
-
-  const loadPosts = async (courseId: string) => {
-    setLoading(true);
-    try {
-      const res = await forumAPI.getPosts(courseId);
-      setPosts(res.data.data.posts);
-    } catch {
-      toast.error("Failed to load posts.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleCreatePost = async () => {
     if (!newPost.title.trim() || !newPost.content.trim() || !newPost.courseId) {
@@ -86,7 +91,7 @@ export default function ForumPage() {
   );
 
   const formatDate = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime();
+    const diff = now - new Date(dateStr).getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 60) return `${mins}m ago`;
     const hrs = Math.floor(mins / 60);

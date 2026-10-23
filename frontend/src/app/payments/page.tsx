@@ -5,22 +5,14 @@ import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
 import { usersAPI } from "@/lib/api";
 import {
-  CreditCard,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Search,
-  ExternalLink,
-  BookOpen,
-  ArrowUpRight,
-  ShieldCheck,
+  CreditCard, CheckCircle2, Clock, XCircle, Search, BookOpen, ArrowUpRight, ShieldCheck,
 } from "lucide-react";
 
 interface PaymentRecord {
   id: string;
   amount: number | string;
   currency: string;
-  status: "SUCCESS" | "PENDING" | "FAILED";
+  status: "SUCCESS" | "PENDING" | "FAILED" | "REFUNDED";
   razorpayOrderId?: string | null;
   razorpayPaymentId?: string | null;
   cashfreeOrderId?: string | null;
@@ -106,6 +98,8 @@ export default function StudentPaymentsPage() {
             <XCircle size={12} /> Failed
           </span>
         );
+      case "REFUNDED":
+        return <span className="badge badge-gray badge-dot">Refunded</span>;
       default:
         return <span className="badge badge-gray">{status}</span>;
     }
@@ -204,6 +198,7 @@ export default function StudentPaymentsPage() {
               <option value="SUCCESS">Success</option>
               <option value="PENDING">Pending</option>
               <option value="FAILED">Failed</option>
+              <option value="REFUNDED">Refunded</option>
             </select>
           </div>
         </div>

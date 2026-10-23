@@ -7,9 +7,17 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import toast from "react-hot-toast";
-import { Eye, EyeOff, Mail, Lock, ArrowRight, GraduationCap } from "lucide-react";
-import { authAPI } from "@/lib/api";
-import { useAuthStore } from "@/store/authStore";
+import { Eye, EyeOff, Mail, Lock, ArrowRight } from "lucide-react";
+import { apiErrorMessage, authAPI } from "@/lib/api";
+import { homePathFor, useAuthStore } from "@/store/authStore";
+import { isAxiosError } from "axios";
+
+// Only same-site relative paths are allowed as post-login destinations
+const safeNext = () => {
+  if (typeof window === "undefined") return null;
+  const next = new URLSearchParams(window.location.search).get("next");
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+};
 
 const schema = z.object({
   email: z.string().min(1, "Email or Student ID is required"),
@@ -23,6 +31,7 @@ export default function LoginPage() {
   const { setUser, setTokens } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
 
   const {
     register,
@@ -34,16 +43,18 @@ export default function LoginPage() {
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
+      setUnverifiedEmail(null);
       const res = await authAPI.login(data);
-      const { user, accessToken, refreshToken } = res.data.data;
+      const { user, accessToken } = res.data.data;
+      setTokens(accessToken);
       setUser(user);
-      setTokens(accessToken, refreshToken);
       toast.success(`Welcome back, ${user.firstName}! 👋`);
-      if (user.role === "ADMIN") router.push("/admin/dashboard");
-      else if (user.role === "TEACHER") router.push("/teacher/dashboard");
-      else router.push("/dashboard");
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Login failed. Please try again.");
+      router.push(safeNext() || homePathFor(user.role));
+    } catch (err) {
+      if (isAxiosError<{ code?: string }>(err) && err.response?.data?.code === "EMAIL_NOT_VERIFIED") {
+        setUnverifiedEmail(data.email);
+      }
+      toast.error(apiErrorMessage(err, "Login failed. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -130,6 +141,23 @@ export default function LoginPage() {
         <div className="auth-form-container">
           <div className="auth-title">Welcome back 👋</div>
           <p className="auth-subtitle">Sign in to your account to continue</p>
+
+          {unverifiedEmail && (
+            <div className="alert alert-warning" style={{ marginBottom: 20, display: "block" }}>
+              Your email address isn&apos;t verified yet. Check your inbox for the verification link.{" "}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ padding: "2px 6px", textDecoration: "underline" }}
+                onClick={async () => {
+                  await authAPI.resendVerification(unverifiedEmail).catch(() => {});
+                  toast.success("If the account needs verification, a new link has been sent.");
+                }}
+              >
+                Resend link
+              </button>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit(onSubmit)}>
             <div className="form-group">

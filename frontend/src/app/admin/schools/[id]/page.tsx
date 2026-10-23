@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
-import { schoolsAPI, coursesAPI, usersAPI } from "@/lib/api";
+import { schoolsAPI, coursesAPI, usersAPI, apiErrorMessage } from "@/lib/api";
+import toast from "react-hot-toast";
+import "./school-detail.css";
 import {
-  Building2, ArrowLeft, Plus, Users, BookOpen, Layers,
-  Calendar, MapPin, Phone, Mail, Award, CheckCircle,
-  XCircle, Edit, Trash2, UserPlus, ChevronRight,
-  TrendingUp, BarChart2, ShieldCheck, Download, Search,
-  GraduationCap, Upload
+  Building2, ArrowLeft, Plus, Users, BookOpen, Layers, Calendar, MapPin, Phone, Mail, Award, CheckCircle, XCircle, Edit, Trash2, UserPlus, ChevronRight, BarChart2, Download, Search, GraduationCap, Upload,
 } from "lucide-react";
 
 interface Teacher {
@@ -100,9 +98,13 @@ interface AnalyticsSummary {
   notStartedCount: number;
 }
 
+interface ClassStudentRow {
+  id: string;
+  student?: { id: string; email: string; firstName: string; lastName: string; username?: string | null; isActive: boolean } | null;
+}
+
 export default function SchoolManagePage() {
   const params = useParams();
-  const router = useRouter();
   const schoolId = params?.id as string;
 
   const [school, setSchool] = useState<SchoolDetail | null>(null);
@@ -112,9 +114,12 @@ export default function SchoolManagePage() {
 
   // Members state
   const [members, setMembers] = useState<SchoolMember[]>([]);
-  const [loadingMembers, setLoadingMembers] = useState(false);
   const [memberRoleFilter, setMemberRoleFilter] = useState<"ALL" | "STUDENT" | "TEACHER" | "ADMIN">("ALL");
   const [memberSearch, setMemberSearch] = useState("");
+  // Members are "loading" until the list for the current filters has arrived
+  const membersKey = `${memberRoleFilter}|${memberSearch.trim()}`;
+  const [membersLoadedKey, setMembersLoadedKey] = useState<string | null>(null);
+  const loadingMembers = membersLoadedKey !== membersKey;
   const [showAddMember, setShowAddMember] = useState(false);
   const [addMemberForm, setAddMemberForm] = useState({ email: "", role: "STUDENT" });
   const [addingMember, setAddingMember] = useState(false);
@@ -122,7 +127,6 @@ export default function SchoolManagePage() {
   // Auxiliary data
   const [availableTeachers, setAvailableTeachers] = useState<Teacher[]>([]);
   const [availableCourses, setAvailableCourses] = useState<{ id: string; title: string }[]>([]);
-  const [schoolStudents, setSchoolStudents] = useState<any[]>([]);
 
   // Modals state
   const [showEditSchool, setShowEditSchool] = useState(false);
@@ -145,7 +149,7 @@ export default function SchoolManagePage() {
 
   // Class detail modal
   const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null);
-  const [classStudents, setClassStudents] = useState<any[]>([]);
+  const [classStudents, setClassStudents] = useState<ClassStudentRow[]>([]);
   const [loadingClassStudents, setLoadingClassStudents] = useState(false);
   const [assignStudentId, setAssignStudentId] = useState("");
   const [assignClassCourseId, setAssignClassCourseId] = useState("");
@@ -153,28 +157,14 @@ export default function SchoolManagePage() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  useEffect(() => {
-    if (schoolId) {
-      loadSchool();
-      loadAuxiliaryData();
-      loadMembers();
-    }
-  }, [schoolId]);
 
-  useEffect(() => {
-    if (schoolId) {
-      loadMembers();
-    }
-  }, [memberRoleFilter, memberSearch]);
 
-  const loadSchool = async () => {
-    setLoading(true);
-    try {
-      const [schoolRes, analyticsRes] = await Promise.all([
-        schoolsAPI.get(schoolId),
-        schoolsAPI.getAnalytics(schoolId).catch(() => ({ data: { data: { summary: null } } })),
-      ]);
-
+  const loadSchool = () =>
+    Promise.all([
+      schoolsAPI.get(schoolId),
+      schoolsAPI.getAnalytics(schoolId).catch(() => ({ data: { data: { summary: null } } })),
+    ])
+      .then(([schoolRes, analyticsRes]) => {
       const sc = schoolRes.data.data;
       setSchool(sc);
       setSchoolForm({
@@ -191,43 +181,48 @@ export default function SchoolManagePage() {
       if (analyticsRes.data?.data?.summary) {
         setAnalytics(analyticsRes.data.data.summary);
       }
-    } catch (err: any) {
-      console.error("Failed to load school:", err);
-      setErrorMsg(err.response?.data?.message || "Failed to load school details.");
-    } finally {
-      setLoading(false);
-    }
-  };
+      })
+      .catch((err) => {
+        console.error("Failed to load school:", err);
+        setErrorMsg(apiErrorMessage(err, "Failed to load school details."));
+      })
+      .finally(() => setLoading(false));
 
-  const loadAuxiliaryData = async () => {
-    try {
-      const [teachersRes, coursesRes] = await Promise.all([
-        usersAPI.getAll({ role: "TEACHER", limit: 100 }),
-        coursesAPI.adminGetAll({ limit: 100 }),
-      ]);
-      setAvailableTeachers(teachersRes.data?.data?.users || []);
-      setAvailableCourses(coursesRes.data?.data?.courses || []);
-    } catch (err) {
-      console.error("Failed to load auxiliary data:", err);
-    }
-  };
+  const loadAuxiliaryData = () =>
+    Promise.all([
+      usersAPI.getAll({ role: "TEACHER", limit: 100 }),
+      coursesAPI.adminGetAll({ limit: 100 }),
+    ])
+      .then(([teachersRes, coursesRes]) => {
+        setAvailableTeachers(teachersRes.data?.data?.users || []);
+        setAvailableCourses(coursesRes.data?.data?.courses || []);
+      })
+      .catch((err) => console.error("Failed to load auxiliary data:", err));
 
-  const loadMembers = async () => {
-    if (!schoolId) return;
-    setLoadingMembers(true);
-    try {
-      const res = await schoolsAPI.listMembers(schoolId, {
+  const loadMembers = () => {
+    if (!schoolId) return Promise.resolve();
+    const key = membersKey;
+    return schoolsAPI
+      .listMembers(schoolId, {
         role: memberRoleFilter !== "ALL" ? memberRoleFilter : undefined,
         search: memberSearch.trim() || undefined,
         limit: 100,
-      });
-      setMembers(res.data?.data?.members || []);
-    } catch (err) {
-      console.error("Failed to load school members:", err);
-    } finally {
-      setLoadingMembers(false);
-    }
+      })
+      .then((res) => setMembers(res.data?.data?.members || []))
+      .catch((err) => console.error("Failed to load school members:", err))
+      .finally(() => setMembersLoadedKey(key));
   };
+
+  useEffect(() => {
+    if (schoolId) {
+      loadSchool();
+      loadAuxiliaryData();
+    }
+  }, [schoolId]);
+
+  useEffect(() => {
+    loadMembers();
+  }, [schoolId, memberRoleFilter, memberSearch]);
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,8 +238,8 @@ export default function SchoolManagePage() {
       setAddMemberForm({ email: "", role: "STUDENT" });
       loadMembers();
       loadSchool();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.message || "Failed to add member to school.");
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, "Failed to add member to school."));
     } finally {
       setAddingMember(false);
     }
@@ -256,8 +251,8 @@ export default function SchoolManagePage() {
       await schoolsAPI.removeMember(schoolId, userId);
       loadMembers();
       loadSchool();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to remove member.");
+    } catch (err) {
+      alert(apiErrorMessage(err, "Failed to remove member."));
     }
   };
 
@@ -269,8 +264,8 @@ export default function SchoolManagePage() {
       await schoolsAPI.update(schoolId, schoolForm);
       setShowEditSchool(false);
       loadSchool();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.message || "Failed to update school.");
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, "Failed to update school."));
     } finally {
       setSubmitting(false);
     }
@@ -291,8 +286,8 @@ export default function SchoolManagePage() {
       setShowAddClass(false);
       setClassForm({ name: "", section: "", teacherId: "", academicYearId: "" });
       loadSchool();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.message || "Failed to create class.");
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, "Failed to create class."));
     } finally {
       setSubmitting(false);
     }
@@ -308,8 +303,8 @@ export default function SchoolManagePage() {
       setShowAddYear(false);
       setYearForm({ name: "", startDate: "", endDate: "" });
       loadSchool();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.message || "Failed to add academic year.");
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, "Failed to add academic year."));
     } finally {
       setSubmitting(false);
     }
@@ -325,8 +320,8 @@ export default function SchoolManagePage() {
       setShowAssignCourse(false);
       setSelectedCourseId("");
       loadSchool();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.message || "Failed to assign course.");
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, "Failed to assign course."));
     } finally {
       setSubmitting(false);
     }
@@ -353,8 +348,8 @@ export default function SchoolManagePage() {
       setAssignStudentId("");
       openClassDetail(selectedClass);
       loadSchool();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to add student to class.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to add student to class."));
     }
   };
 
@@ -365,8 +360,8 @@ export default function SchoolManagePage() {
       await schoolsAPI.removeStudentFromClass(selectedClass.id, studentId);
       openClassDetail(selectedClass);
       loadSchool();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to remove student.");
+    } catch (err) {
+      alert(apiErrorMessage(err, "Failed to remove student."));
     }
   };
 
@@ -376,8 +371,8 @@ export default function SchoolManagePage() {
       await schoolsAPI.assignCourseToClass(selectedClass.id, assignClassCourseId);
       setAssignClassCourseId("");
       alert("Course successfully assigned to class!");
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to assign course to class.");
+    } catch (err) {
+      alert(apiErrorMessage(err, "Failed to assign course to class."));
     }
   };
 
@@ -1142,6 +1137,32 @@ export default function SchoolManagePage() {
                 {/* Enrolled Students in Class */}
                 <div className="section-card">
                   <h4>Class Students ({classStudents.length})</h4>
+                  {/* Add an existing student of this school to the class */}
+                  {(() => {
+                    const inClass = new Set(classStudents.map((b) => b.student?.id));
+                    const candidates = members.filter((m) => m.role === "STUDENT" && !inClass.has(m.user.id));
+                    return (
+                      <div style={{ display: "flex", gap: 8, margin: "8px 0 14px", flexWrap: "wrap" }}>
+                        <select
+                          className="form-control"
+                          style={{ flex: 1, minWidth: 200 }}
+                          value={assignStudentId}
+                          onChange={(e) => setAssignStudentId(e.target.value)}
+                          aria-label="Student to add to this class"
+                        >
+                          <option value="">{candidates.length ? "Select a school student…" : "No other students in this school"}</option>
+                          {candidates.map((m) => (
+                            <option key={m.user.id} value={m.user.id}>
+                              {`${m.user.firstName} ${m.user.lastName}`.trim() || m.user.email} ({m.user.email})
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" className="btn btn-primary btn-sm" disabled={!assignStudentId} onClick={handleAddStudentToClass}>
+                          <UserPlus size={14} /> Add to class
+                        </button>
+                      </div>
+                    );
+                  })()}
                   {loadingClassStudents ? (
                     <p className="loading-text">Loading student batch...</p>
                   ) : classStudents.length === 0 ? (
@@ -1177,7 +1198,7 @@ export default function SchoolManagePage() {
                               <td>
                                 <button
                                   className="btn-danger-icon"
-                                  onClick={() => handleRemoveStudentFromClass(batch.student?.id)}
+                                  onClick={() => batch.student && handleRemoveStudentFromClass(batch.student.id)}
                                   title="Remove from class"
                                 >
                                   <Trash2 size={14} />
@@ -1250,668 +1271,6 @@ export default function SchoolManagePage() {
           </div>
         )}
 
-        <style jsx>{`
-          .school-manage-page {
-            padding: 1.5rem 2rem 3rem;
-            max-width: 1300px;
-            margin: 0 auto;
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-            background: transparent;
-            color: #0f172a;
-          }
-
-          .breadcrumb-row { display: flex; align-items: center; }
-          .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #64748b;
-            text-decoration: none;
-            transition: color 0.15s;
-          }
-          .back-link:hover { color: #1d4ed8; }
-
-          /* Hero Card */
-          .school-hero-card {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 1.75rem 2rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 1.5rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-          }
-          @media (max-width: 860px) {
-            .school-hero-card { flex-direction: column; align-items: flex-start; }
-            .hero-actions { width: 100%; justify-content: flex-start; }
-          }
-          .hero-main { display: flex; align-items: center; gap: 1.25rem; }
-          .school-avatar {
-            width: 64px;
-            height: 64px;
-            border-radius: 14px;
-            background: linear-gradient(135deg, #1d4ed8, #a855f7);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            box-shadow: 0 4px 14px rgba(29, 78, 216,0.25);
-          }
-          .school-hero-info { display: flex; flex-direction: column; gap: 0.35rem; }
-          .school-tag-row { display: flex; align-items: center; gap: 0.5rem; }
-          .school-code-badge {
-            background: rgba(29, 78, 216,0.12);
-            color: #1d4ed8;
-            font-size: 0.75rem;
-            font-weight: 700;
-            padding: 0.15rem 0.6rem;
-            border-radius: 6px;
-            letter-spacing: 0.05em;
-          }
-          .status-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            padding: 0.15rem 0.6rem;
-            border-radius: 20px;
-          }
-          .status-pill--active { background: rgba(16,185,129,0.12); color: #059669; }
-          .status-pill--inactive { background: rgba(239,68,68,0.12); color: #dc2626; }
-          .school-title {
-            font-size: 1.6rem;
-            font-weight: 800;
-            color: #0f172a !important;
-            margin: 0;
-            letter-spacing: -0.02em;
-          }
-          .school-contact-row {
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-            margin-top: 0.2rem;
-          }
-          .contact-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            font-size: 0.825rem;
-            color: #64748b;
-          }
-          .hero-actions { display: flex; align-items: center; gap: 0.75rem; }
-
-          /* Metrics */
-          .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1rem;
-          }
-          @media (max-width: 900px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
-          @media (max-width: 500px) { .metrics-grid { grid-template-columns: 1fr; } }
-          .metric-card {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
-            padding: 1.25rem 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 1.2rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-          }
-          .metric-icon {
-            width: 46px;
-            height: 46px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-          }
-          .metric-indigo { background: rgba(29, 78, 216,0.12); color: #1d4ed8; }
-          .metric-purple { background: rgba(168,85,247,0.12); color: #9333ea; }
-          .metric-blue { background: rgba(59,130,246,0.12); color: #2563eb; }
-          .metric-emerald { background: rgba(16,185,129,0.12); color: #059669; }
-          .metric-value { font-size: 1.5rem; font-weight: 800; color: #0f172a !important; }
-          .metric-label { font-size: 0.8rem; font-weight: 600; color: #64748b !important; }
-
-          /* Tabs */
-          .tabs-header {
-            display: flex;
-            gap: 0.5rem;
-            border-bottom: 1px solid #e2e8f0;
-            padding-bottom: 0.25rem;
-            overflow-x: auto;
-          }
-          .tab-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1.25rem;
-            border: none;
-            background: none;
-            font-size: 0.9rem;
-            font-weight: 600;
-            color: #64748b;
-            border-radius: 10px 10px 0 0;
-            cursor: pointer;
-            transition: all 0.15s;
-            white-space: nowrap;
-          }
-          .tab-btn:hover { color: #0f172a; background: #f1f5f9; }
-          .tab-btn--active {
-            color: #1d4ed8;
-            border-bottom: 2px solid #1d4ed8;
-            background: rgba(29, 78, 216,0.08);
-          }
-
-          /* Tab Panes */
-          .tab-pane {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 1.75rem 2rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-          }
-          .pane-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 1rem;
-            flex-wrap: wrap;
-          }
-          .pane-header h2 { font-size: 1.25rem; font-weight: 700; color: #0f172a !important; margin: 0; }
-          .pane-header p { font-size: 0.85rem; color: #64748b !important; margin: 0.2rem 0 0; }
-
-          /* Members View Components */
-          .members-header-actions { display: flex; gap: 0.75rem; align-items: center; }
-          .members-filter-bar {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            padding-bottom: 0.25rem;
-          }
-          .member-search-box {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: #ffffff !important;
-            border: 1.5px solid #cbd5e1;
-            border-radius: 10px;
-            padding: 0.5rem 0.85rem;
-            width: 320px;
-            max-width: 100%;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-          }
-          .member-search-box .search-icon { color: #94a3b8; flex-shrink: 0; }
-          .member-search-box input {
-            border: none !important;
-            background: transparent !important;
-            outline: none;
-            width: 100%;
-            font-size: 0.875rem;
-            color: #0f172a !important;
-          }
-          .clear-search {
-            border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 0.85rem;
-          }
-          .clear-search:hover { color: #0f172a; }
-          .role-filter-group { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-          .role-filter-pill {
-            padding: 0.4rem 0.85rem;
-            border: 1px solid #e2e8f0;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            color: #64748b;
-            background: #ffffff;
-            cursor: pointer;
-            transition: all 0.15s;
-          }
-          .role-filter-pill:hover { background: #f1f5f9; color: #0f172a; }
-          .role-filter-pill--active {
-            background: #1d4ed8;
-            color: #ffffff;
-            border-color: #1d4ed8;
-          }
-
-          .member-profile-cell { display: flex; align-items: center; gap: 0.75rem; }
-          .member-avatar {
-            width: 38px;
-            height: 38px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 0.875rem;
-            color: #ffffff;
-            overflow: hidden;
-            flex-shrink: 0;
-          }
-          .avatar-student { background: linear-gradient(135deg, #10b981, #059669); }
-          .avatar-teacher { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
-          .avatar-admin { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
-          .member-avatar img { width: 100%; height: 100%; object-fit: cover; }
-          .member-info { display: flex; flex-direction: column; }
-          .member-name { font-weight: 600; color: #0f172a; font-size: 0.9rem; }
-          .member-email { color: #64748b; font-size: 0.8rem; }
-          .member-role-badge {
-            padding: 0.2rem 0.65rem;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            display: inline-block;
-          }
-          .badge-student { background: rgba(16, 185, 129, 0.12); color: #059669; }
-          .badge-teacher { background: rgba(59, 130, 246, 0.12); color: #2563eb; }
-          .badge-admin { background: rgba(139, 92, 246, 0.12); color: #7c3aed; }
-          .member-classes-text { font-size: 0.85rem; color: #334155; font-weight: 500; }
-          .member-date-text { font-size: 0.825rem; color: #64748b; }
-
-          /* Classes Grid */
-          .classes-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 1.25rem;
-          }
-          .class-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
-            padding: 1.25rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
-          }
-          .class-card:hover {
-            transform: translateY(-2px);
-            border-color: #1d4ed8;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-          }
-          .class-card-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-          }
-          .class-title { font-size: 1.1rem; font-weight: 700; color: #0f172a !important; margin: 0; }
-          .class-year-badge {
-            font-size: 0.725rem;
-            font-weight: 600;
-            color: #7c3aed;
-            background: rgba(139,92,246,0.12);
-            padding: 0.15rem 0.5rem;
-            border-radius: 5px;
-            margin-top: 0.25rem;
-            display: inline-block;
-          }
-          .student-count-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: #334155;
-            background: #ffffff;
-            padding: 0.25rem 0.6rem;
-            border-radius: 20px;
-            border: 1px solid #cbd5e1;
-          }
-          .class-teacher-info {
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-            font-size: 0.85rem;
-            color: #64748b;
-          }
-          .teacher-icon { color: #1d4ed8; }
-          .class-card-actions { margin-top: auto; }
-
-          /* Courses Grid */
-          .courses-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-            gap: 1.25rem;
-          }
-          .course-card-mini {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-          }
-          .course-mini-thumb {
-            height: 120px;
-            background: #f1f5f9;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          }
-          .course-mini-thumb img { width: 100%; height: 100%; object-fit: cover; }
-          .thumb-placeholder { color: #94a3b8; }
-          .course-mini-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
-          .course-mini-body h4 { font-size: 0.95rem; font-weight: 700; color: #0f172a !important; margin: 0; }
-          .badge-published {
-            font-size: 0.7rem;
-            font-weight: 700;
-            color: #059669;
-            background: rgba(16,185,129,0.12);
-            padding: 0.15rem 0.5rem;
-            border-radius: 4px;
-            align-self: flex-start;
-          }
-
-          /* Analytics Cards */
-          .analytics-overview-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 1.25rem;
-          }
-          .stat-box {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-          }
-          .stat-title { font-size: 0.85rem; font-weight: 600; color: #64748b; }
-          .stat-num { font-size: 2rem; font-weight: 800; color: #1d4ed8; }
-
-          /* Empty State */
-          .empty-panel {
-            text-align: center;
-            padding: 4rem 2rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.75rem;
-          }
-          .empty-icon { color: #94a3b8; margin-bottom: 0.5rem; }
-          .empty-panel h3 { font-size: 1.15rem; font-weight: 700; color: #0f172a !important; margin: 0; }
-          .empty-panel p { font-size: 0.875rem; color: #64748b !important; margin: 0; max-width: 440px; }
-
-          /* Tables */
-          .table-responsive { width: 100%; overflow-x: auto; }
-          .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.875rem;
-          }
-          .data-table th {
-            text-align: left;
-            padding: 0.75rem 1rem;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: #475569;
-            background: #f8fafc;
-            border-bottom: 1px solid #e2e8f0;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-          }
-          .data-table td {
-            padding: 0.85rem 1rem;
-            border-bottom: 1px solid #f1f5f9;
-            color: #0f172a !important;
-          }
-          .data-table tr:hover td { background: #f8fafc; }
-
-          /* Buttons */
-          .btn-primary {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.45rem;
-            height: 38px;
-            padding: 0 1.25rem;
-            background: #1e40af;
-            color: #ffffff;
-            border: 1.5px solid #1e40af;
-            border-radius: 9px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            cursor: pointer;
-            text-decoration: none;
-            box-shadow: 0 1px 3px rgba(79, 70, 229, 0.25), 0 1px 2px rgba(0, 0, 0, 0.05);
-            transition: all 0.15s ease;
-            white-space: nowrap;
-            box-sizing: border-box;
-          }
-          .btn-primary:hover {
-            background: #1e40af;
-            border-color: #1e40af;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);
-          }
-          .btn-primary:active { transform: translateY(0); }
-          .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-
-          .btn-secondary {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.45rem;
-            height: 38px;
-            padding: 0 1.15rem;
-            background: #ffffff;
-            border: 1.5px solid #cbd5e1;
-            color: #334155;
-            border-radius: 9px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            cursor: pointer;
-            text-decoration: none;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-            transition: all 0.15s ease;
-            white-space: nowrap;
-            box-sizing: border-box;
-          }
-          .btn-secondary:hover {
-            background: #f8fafc;
-            border-color: #94a3b8;
-            color: #0f172a;
-          }
-          .btn-secondary:active { background: #f1f5f9; }
-
-          .btn-import {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.45rem;
-            height: 38px;
-            padding: 0 1.15rem;
-            background: #eff4ff;
-            border: 1.5px solid #c7d2fe;
-            color: #1e40af;
-            border-radius: 9px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            cursor: pointer;
-            text-decoration: none;
-            box-shadow: 0 1px 2px rgba(79, 70, 229, 0.06);
-            transition: all 0.15s ease;
-            white-space: nowrap;
-            box-sizing: border-box;
-          }
-          .btn-import:hover {
-            background: #dbe6ff;
-            border-color: #a5b4fc;
-            color: #1e40af;
-            transform: translateY(-1px);
-            box-shadow: 0 3px 8px rgba(79, 70, 229, 0.18);
-          }
-          .btn-import:active { transform: translateY(0); }
-          .btn-sm { height: 32px; padding: 0 0.85rem; font-size: 0.8rem; }
-
-          .btn-danger-icon {
-            width: 28px;
-            height: 28px;
-            border: 1px solid rgba(239,68,68,0.2);
-            background: rgba(239,68,68,0.08);
-            color: #ef4444;
-            border-radius: 6px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.15s;
-          }
-          .btn-danger-icon:hover { background: rgba(239,68,68,0.2); }
-
-          /* Modal Styling - Solid & High Contrast */
-          .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(15, 23, 42, 0.7);
-            backdrop-filter: blur(8px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            padding: 1.5rem;
-          }
-          .modal-box {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0;
-            border-radius: 18px;
-            width: 100%;
-            max-width: 580px;
-            max-height: 90vh;
-            overflow-y: auto;
-            box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0,0,0,0.05);
-            animation: modalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          }
-          .class-detail-modal { max-width: 720px; }
-          @keyframes modalPop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-
-          .modal-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            padding: 1.35rem 1.75rem;
-            border-bottom: 1px solid #e2e8f0;
-            background: #ffffff;
-          }
-          .modal-header h2 { font-size: 1.25rem; font-weight: 700; color: #0f172a !important; margin: 0; }
-          .modal-subtitle { font-size: 0.825rem; color: #64748b; margin: 0.2rem 0 0; }
-          .modal-close {
-            background: #f1f5f9;
-            border: none;
-            color: #64748b;
-            font-size: 1.1rem;
-            cursor: pointer;
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.15s;
-          }
-          .modal-close:hover { background: #e2e8f0; color: #0f172a; }
-          .modal-error {
-            margin: 1rem 1.75rem 0;
-            padding: 0.75rem 1rem;
-            background: rgba(239,68,68,0.1);
-            color: #ef4444;
-            border-radius: 8px;
-            font-size: 0.875rem;
-          }
-          .modal-form {
-            padding: 1.35rem 1.75rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1.15rem;
-            background: #ffffff;
-          }
-          .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-          @media (max-width: 500px) { .form-row { grid-template-columns: 1fr; } }
-          .form-group { display: flex; flex-direction: column; gap: 0.4rem; }
-          .form-group label { font-size: 0.825rem; font-weight: 600; color: #334155; }
-          .form-group input, .form-group select {
-            padding: 0.7rem 0.95rem;
-            background: #ffffff !important;
-            border: 1.5px solid #cbd5e1;
-            border-radius: 10px;
-            color: #0f172a !important;
-            font-size: 0.9rem;
-            outline: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-            transition: border-color 0.2s, box-shadow 0.2s;
-          }
-          .form-group input:focus, .form-group select:focus {
-            border-color: #1d4ed8;
-            box-shadow: 0 0 0 3px rgba(29, 78, 216,0.15);
-          }
-          .modal-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 0.75rem;
-            padding: 1.25rem 1.75rem;
-            border-top: 1px solid #e2e8f0;
-            background: #f8fafc;
-            border-radius: 0 0 18px 18px;
-          }
-
-          /* Class Detail Internals */
-          .class-detail-content {
-            padding: 1.35rem 1.75rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1.25rem;
-            background: #ffffff;
-          }
-          .section-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 1.25rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-          }
-          .section-card h4 { font-size: 0.95rem; font-weight: 700; color: #0f172a !important; margin: 0; }
-          .inline-action-form {
-            display: flex;
-            gap: 0.75rem;
-          }
-          .inline-action-form select, .inline-action-form input {
-            flex: 1;
-            padding: 0.65rem 0.85rem;
-            background: #ffffff !important;
-            border: 1.5px solid #cbd5e1;
-            border-radius: 8px;
-            color: #0f172a !important;
-            font-size: 0.875rem;
-          }
-          .empty-sub {
-            padding: 1.5rem;
-            text-align: center;
-            color: #64748b;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.75rem;
-            font-size: 0.875rem;
-          }
-        `}</style>
       </div>
     </AppLayout>
   );

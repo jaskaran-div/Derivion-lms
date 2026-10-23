@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import LearnerContentProtection from "@/components/content/LearnerContentProtection";
-import { usersAPI } from "@/lib/api";
+import { learnerAPI, usersAPI } from "@/lib/api";
 import Link from "next/link";
 import { Play, CheckCircle, Clock, BookOpen } from "lucide-react";
 
@@ -25,15 +25,31 @@ interface Enrollment {
   };
 }
 
+interface SavedCourse {
+  id: string;
+  course: {
+    id: string;
+    title: string;
+    slug: string;
+    thumbnail?: string;
+    shortDesc?: string;
+    totalLessons: number;
+    totalDuration: number;
+    category?: { name: string };
+  };
+}
+
 export default function MyCoursesPage() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [saved, setSaved] = useState<SavedCourse[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const [filter, setFilter] = useState<"all" | "active" | "completed" | "saved">("all");
 
   useEffect(() => {
-    usersAPI.getEnrollments().then((res) => {
-      setEnrollments(res.data.data);
-    }).finally(() => setLoading(false));
+    Promise.all([
+      usersAPI.getEnrollments().then((res) => setEnrollments((res.data.data as Enrollment[]).filter((e) => e.status !== "REFUNDED"))),
+      learnerAPI.bookmarks().then((res) => setSaved(res.data.data)).catch(() => {}),
+    ]).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const filtered = enrollments.filter((e) => {
@@ -68,11 +84,12 @@ export default function MyCoursesPage() {
             { key: "all", label: `All (${enrollments.length})` },
             { key: "active", label: `In Progress (${enrollments.filter(e => e.status === "ACTIVE").length})` },
             { key: "completed", label: `Completed (${enrollments.filter(e => e.status === "COMPLETED").length})` },
+            { key: "saved", label: `Saved (${saved.length})` },
           ].map((tab) => (
             <div
               key={tab.key}
               className={`tab ${filter === tab.key ? "active" : ""}`}
-              onClick={() => setFilter(tab.key as "all" | "active" | "completed")}
+              onClick={() => setFilter(tab.key as "all" | "active" | "completed" | "saved")}
             >
               {tab.label}
             </div>
@@ -92,6 +109,43 @@ export default function MyCoursesPage() {
               </div>
             ))}
           </div>
+        ) : filter === "saved" ? (
+          saved.length === 0 ? (
+            <div className="card"><div className="empty-state">
+              <div className="empty-state-icon">🔖</div>
+              <div className="empty-state-title">No saved courses</div>
+              <div className="empty-state-text">Tap “Save” on any course page to keep it here for later.</div>
+              <Link href="/courses" className="btn btn-dark">Browse Courses</Link>
+            </div></div>
+          ) : (
+            <div className="my-course-grid">
+              {saved.map(({ id, course }) => (
+                <Link href={`/courses/${course.slug}`} key={id}>
+                  <div className="my-course-card">
+                    {course.category?.name && <span className="badge badge-success" style={{ alignSelf: "flex-start" }}>{course.category.name}</span>}
+                    <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                      {course.thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={course.thumbnail} alt="" className="my-course-thumb" />
+                      ) : (
+                        <div className="my-course-thumb">📚</div>
+                      )}
+                      <div style={{ minWidth: 0 }}>
+                        <div className="course-card-title" style={{ fontSize: 17, marginBottom: 4 }}>{course.title}</div>
+                        {course.shortDesc && <div style={{ fontSize: 12.5, color: "var(--gray-500)" }}>{course.shortDesc.slice(0, 90)}</div>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: "auto" }}>
+                      <div className="course-card-meta" style={{ marginBottom: 0 }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}><BookOpen size={13} /> {course.totalLessons} lessons</span>
+                      </div>
+                      <span className="btn btn-dark btn-sm">View course</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )
         ) : filtered.length === 0 ? (
           <div className="card"><div className="empty-state">
             <div className="empty-state-icon">📚</div>

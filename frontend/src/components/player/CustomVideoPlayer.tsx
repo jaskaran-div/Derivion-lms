@@ -18,6 +18,8 @@ interface CustomVideoPlayerProps {
   hasNext?: boolean;
   onDurationDetected?: (duration: number) => void;
   disablePictureInPicture?: boolean;
+  // Called when the source fails (e.g. an expired signed URL); the parent should supply a fresh src
+  onSourceError?: () => void;
 }
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -33,6 +35,7 @@ export default function CustomVideoPlayer({
   hasNext,
   onDurationDetected,
   disablePictureInPicture = false,
+  onSourceError,
 }: CustomVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -51,10 +54,10 @@ export default function CustomVideoPlayer({
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<number>(0);
-  const [isScrubbing, setIsScrubbing] = useState(false);
   const [centerAnimation, setCenterAnimation] = useState<"play" | "pause" | null>(null);
   const [isBuffering, setIsBuffering] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const sourceRetried = useRef(false);
 
   // New source: show the loader until the first frame can play
   const [loadedSrc, setLoadedSrc] = useState(src);
@@ -63,6 +66,11 @@ export default function CustomVideoPlayer({
     setIsBuffering(true);
     setLoadError(false);
   }
+
+  const triggerCenterAnim = useCallback((type: "play" | "pause") => {
+    setCenterAnimation(type);
+    setTimeout(() => setCenterAnimation(null), 600);
+  }, []);
 
   // Play / Pause toggle
   const togglePlay = useCallback(() => {
@@ -77,12 +85,7 @@ export default function CustomVideoPlayer({
       setIsPlaying(false);
       triggerCenterAnim("pause");
     }
-  }, []);
-
-  const triggerCenterAnim = (type: "play" | "pause") => {
-    setCenterAnimation(type);
-    setTimeout(() => setCenterAnimation(null), 600);
-  };
+  }, [triggerCenterAnim]);
 
   // Autohide controls logic
   const resetHideTimer = useCallback(() => {
@@ -99,12 +102,17 @@ export default function CustomVideoPlayer({
     }
   }, [isPlaying, showSpeedMenu]);
 
+  // While playing, controls fade out after a pause in mouse movement; paused video always shows them
   useEffect(() => {
-    resetHideTimer();
+    if (!isPlaying) return;
+    hideControlsTimerRef.current = setTimeout(() => {
+      if (!showSpeedMenu) setShowControls(false);
+    }, 2500);
     return () => {
       if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
     };
-  }, [isPlaying, resetHideTimer]);
+  }, [isPlaying, showSpeedMenu]);
+  const controlsVisible = showControls || !isPlaying;
 
   // Video event handlers
   const handleLoadedMetadata = () => {
@@ -121,7 +129,7 @@ export default function CustomVideoPlayer({
   };
 
   const handleTimeUpdate = () => {
-    if (!videoRef.current || isScrubbing) return;
+    if (!videoRef.current) return;
     const curr = videoRef.current.currentTime;
     setCurrentTime(curr);
 
@@ -317,9 +325,16 @@ export default function CustomVideoPlayer({
           if ((videoRef.current?.readyState ?? 0) >= 3) setIsBuffering(false);
         }}
         onError={() => {
+          // First failure: quietly ask for a fresh source (signed URLs expire); show the error only if that fails too
+          if (onSourceError && !sourceRetried.current) {
+            sourceRetried.current = true;
+            onSourceError();
+            return;
+          }
           setIsBuffering(false);
           setLoadError(true);
         }}
+        onLoadedData={() => { sourceRetried.current = false; }}
         onContextMenu={(e) => e.preventDefault()}
         playsInline
         disablePictureInPicture={disablePictureInPicture}
@@ -377,7 +392,8 @@ export default function CustomVideoPlayer({
             onClick={() => {
               setLoadError(false);
               setIsBuffering(true);
-              videoRef.current?.load();
+              if (onSourceError) onSourceError();
+              else videoRef.current?.load();
             }}
           >
             Retry
@@ -428,9 +444,9 @@ export default function CustomVideoPlayer({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          opacity: showControls ? 1 : 0,
+          opacity: controlsVisible ? 1 : 0,
           transition: "opacity 0.25s ease",
-          pointerEvents: showControls ? "auto" : "none",
+          pointerEvents: controlsVisible ? "auto" : "none",
           zIndex: 10,
         }}
       >
@@ -448,9 +464,9 @@ export default function CustomVideoPlayer({
           right: 0,
           padding: "12px 18px 14px",
           background: "linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0) 100%)",
-          opacity: showControls ? 1 : 0,
+          opacity: controlsVisible ? 1 : 0,
           transition: "opacity 0.25s ease",
-          pointerEvents: showControls ? "auto" : "none",
+          pointerEvents: controlsVisible ? "auto" : "none",
           zIndex: 10,
         }}
       >

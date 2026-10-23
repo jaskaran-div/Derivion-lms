@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { bulkImportAPI, teacherAPI } from "@/lib/api";
+import { bulkImportAPI, teacherAPI, apiErrorMessage } from "@/lib/api";
 import {
   Upload, Download, CheckCircle, XCircle, AlertCircle,
   Users, FileText, SkipForward, RefreshCw, Eye, ChevronDown, ChevronUp,
@@ -34,35 +34,38 @@ type Step = "upload" | "validate" | "results";
 export default function BulkImportPage() {
   const [step, setStep] = useState<Step>("upload");
   const [csvText, setCsvText] = useState("");
-  const [courses, setCourses] = useState<any[]>([]);
+  const [courses, setCourses] = useState<{ id: string; title: string }[]>([]);
   const [selectedCourses, setSelectedCourses] = useState<string[]>([]);
   const [validationResults, setValidationResults] = useState<ImportRow[]>([]);
   const [importResults, setImportResults] = useState<ImportRow[]>([]);
-  const [importSummary, setImportSummary] = useState<any>(null);
+  const [importSummary, setImportSummary] = useState<{ successCount: number; skippedCount: number; failedCount: number; totalRows?: number; jobId?: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   const [showJobs, setShowJobs] = useState(false);
   const [expandedResults, setExpandedResults] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+
+  const loadCourses = () => {
+    return teacherAPI.listCourses()
+      .then((res) => {
+        setCourses(res.data.data);
+      })
+      .catch(() => {});
+  };
+
+  const loadJobs = () => {
+    return bulkImportAPI.listJobs()
+      .then((res) => {
+        setJobs(res.data.data);
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
     loadCourses();
     loadJobs();
   }, []);
-
-  const loadCourses = async () => {
-    try {
-      const res = await teacherAPI.listCourses();
-      setCourses(res.data.data);
-    } catch {}
-  };
-
-  const loadJobs = async () => {
-    try {
-      const res = await bulkImportAPI.listJobs();
-      setJobs(res.data.data);
-    } catch {}
-  };
 
   const downloadTemplate = async () => {
     try {
@@ -93,8 +96,8 @@ export default function BulkImportPage() {
       const res = await bulkImportAPI.validate(csvText);
       setValidationResults(res.data.data.results);
       setStep("validate");
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Validation failed.");
+    } catch (err) {
+      alert(apiErrorMessage(err, "Validation failed."));
     } finally {
       setLoading(false);
     }
@@ -118,8 +121,8 @@ export default function BulkImportPage() {
       });
       setStep("results");
       loadJobs();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Import failed.");
+    } catch (err) {
+      alert(apiErrorMessage(err, "Import failed."));
     } finally {
       setLoading(false);
     }
@@ -140,13 +143,13 @@ export default function BulkImportPage() {
   };
 
   const resetImport = () => {
-    setCsvText("");
-    setValidationResults([]);
-    setImportResults([]);
-    setImportSummary(null);
-    setSelectedCourses([]);
-    setStep("upload");
-    if (fileRef.current) fileRef.current.value = "";
+  setCsvText("");
+  setValidationResults([]);
+  setImportResults([]);
+  setImportSummary(null);
+  setSelectedCourses([]);
+  setStep("upload");
+  if (fileRef.current) fileRef.current.value = "";
   };
 
   const validCount = validationResults.filter((r) => r.status === "valid").length;

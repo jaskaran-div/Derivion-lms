@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { usersAPI } from "@/lib/api";
+import { certificatePdfUrl, usersAPI } from "@/lib/api";
 import Link from "next/link";
-import { Award, Download, ExternalLink, BookOpen } from "lucide-react";
+import { Download, ExternalLink, BookOpen } from "lucide-react";
 
 interface Certificate {
   id: string;
@@ -21,7 +21,7 @@ export default function CertificatesPage() {
   useEffect(() => {
     usersAPI.getCertificates().then((res) => {
       setCertificates(res.data.data);
-    }).finally(() => setLoading(false));
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const formatDate = (dateStr: string) =>
@@ -108,24 +108,14 @@ export default function CertificatesPage() {
                   Issued on {formatDate(cert.issuedAt)}
                 </p>
 
-                <div style={{ display: "flex", gap: 8 }}>
-                  {cert.cloudFrontUrl && (
-                    <>
-                      <a href={cert.cloudFrontUrl} download target="_blank" rel="noreferrer">
-                        <button className="btn btn-primary btn-sm">
-                          <Download size={13} /> Download
-                        </button>
-                      </a>
-                      <a href={cert.cloudFrontUrl} target="_blank" rel="noreferrer">
-                        <button className="btn btn-secondary btn-sm">
-                          <ExternalLink size={13} /> View
-                        </button>
-                      </a>
-                    </>
-                  )}
-                  {!cert.cloudFrontUrl && (
-                    <span style={{ fontSize: 13, color: "var(--gray-400)" }}>Certificate being generated...</span>
-                  )}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <a href={certificatePdfUrl(cert.certificateId, true)} className="btn btn-dark btn-sm">
+                    <Download size={13} /> Download PDF
+                  </a>
+                  <a href={certificatePdfUrl(cert.certificateId)} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+                    <ExternalLink size={13} /> View
+                  </a>
+                  <Link href={`/verify/${cert.certificateId}`} className="btn btn-ghost btn-sm">Verification page</Link>
                 </div>
               </div>
             </div>

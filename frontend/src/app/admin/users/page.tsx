@@ -2,10 +2,13 @@
 
 import { useEffect, useState, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { usersAPI } from "@/lib/api";
+import { usersAPI, apiErrorMessage } from "@/lib/api";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { Plus, Search, Edit, Trash2, UserCheck, UserX, Shield, User, MoreVertical } from "lucide-react";
+import {
+  Plus, Search, Edit, Trash2, UserCheck, UserX, Shield, User,
+} from "lucide-react";
+import { useNow } from "@/lib/useNow";
 
 interface User {
   id: string;
@@ -21,6 +24,7 @@ interface User {
 }
 
 export default function AdminUsersPage() {
+  const now = useNow();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -30,21 +34,22 @@ export default function AdminUsersPage() {
   const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: any = { page, limit };
-      if (search) params.search = search;
-      if (role) params.role = role;
-      if (isActive !== "") params.isActive = isActive;
-      const res = await usersAPI.getAll(params);
-      setUsers(res.data.data.users);
-      setTotal(res.data.data.pagination.total);
-    } catch {
-      toast.error("Failed to load users.");
-    } finally {
-      setLoading(false);
-    }
+  const fetchUsers = useCallback(() => {
+    const params: Record<string, string | number> = { page, limit };
+    if (search) params.search = search;
+    if (role) params.role = role;
+    if (isActive !== "") params.isActive = isActive;
+    return usersAPI.getAll(params)
+      .then((res) => {
+        setUsers(res.data.data.users);
+        setTotal(res.data.data.pagination.total);
+      })
+      .catch(() => {
+        toast.error("Failed to load users.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [page, search, role, isActive]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
@@ -60,7 +65,7 @@ export default function AdminUsersPage() {
 
   const timeAgo = (dateStr?: string) => {
     if (!dateStr) return "Never";
-    const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+    const mins = Math.floor((now - new Date(dateStr).getTime()) / 60000);
     if (mins < 1) return "Just now";
     if (mins < 60) return `${mins} minute${mins > 1 ? "s" : ""} ago`;
     const hrs = Math.floor(mins / 60);
@@ -87,8 +92,8 @@ export default function AdminUsersPage() {
       await usersAPI.delete(id);
       toast.success("User deleted.");
       fetchUsers();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to delete user.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to delete user."));
     }
   };
 

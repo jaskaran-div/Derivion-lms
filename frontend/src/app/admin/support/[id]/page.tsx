@@ -3,26 +3,53 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
-import { chatAPI } from "@/lib/api";
+import { chatAPI, apiErrorMessage } from "@/lib/api";
 import toast from "react-hot-toast";
 import { ArrowLeft, Send, KeyRound } from "lucide-react";
+
+interface ThreadPerson {
+  firstName: string;
+  lastName: string;
+  role: string;
+}
+
+interface ThreadAccount extends ThreadPerson {
+  id: string;
+  email: string;
+  username?: string | null;
+  phone?: string | null;
+  guardianEmail?: string | null;
+  guardianPhone?: string | null;
+  isActive: boolean;
+  lastLogin?: string | null;
+  createdAt: string;
+  createdBy?: { firstName: string; lastName: string; email: string } | null;
+}
+
+interface SupportThread {
+  id: string;
+  status: string;
+  user: ThreadAccount | null;
+  messages: { id: string; body: string; createdAt: string; sender?: ThreadPerson | null }[];
+}
 
 export default function AdminSupportThreadPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const [thread, setThread] = useState<any>(null);
+  const [thread, setThread] = useState<SupportThread | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [resetPassword, setResetPassword] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const load = async () => {
-    try {
-      const res = await chatAPI.adminGet(id);
-      setThread(res.data.data);
-    } catch {
-      toast.error("Failed to load chat.");
-    }
+  const load = () => {
+    return chatAPI.adminGet(id)
+      .then((res) => {
+        setThread(res.data.data);
+      })
+      .catch(() => {
+        toast.error("Failed to load chat.");
+      });
   };
 
   useEffect(() => {
@@ -43,8 +70,8 @@ export default function AdminSupportThreadPage() {
       await chatAPI.adminReply(id, body);
       setText("");
       load();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to reply.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to reply."));
     } finally {
       setSending(false);
     }
@@ -57,8 +84,8 @@ export default function AdminSupportThreadPage() {
       setResetPassword(res.data.data.password);
       toast.success("Password reset. Copy it now.");
       load();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Reset failed.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Reset failed."));
     }
   };
 
@@ -115,7 +142,7 @@ export default function AdminSupportThreadPage() {
         <div className="card" style={{ display: "flex", flexDirection: "column", minHeight: 480 }}>
           <div className="card-header"><span className="card-title">Messages</span></div>
           <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-            {(thread?.messages || []).map((m: any) => {
+            {(thread?.messages || []).map((m) => {
               const admin = m.sender?.role === "ADMIN";
               return (
                 <div key={m.id} style={{ display: "flex", justifyContent: admin ? "flex-end" : "flex-start" }}>

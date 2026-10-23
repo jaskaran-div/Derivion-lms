@@ -72,9 +72,10 @@ export default function StudentDashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    usersAPI.getStudentDashboard().then((res) => {
-      setData(res.data.data);
-    }).finally(() => setLoading(false));
+    usersAPI.getStudentDashboard()
+      .then((res) => setData(res.data.data))
+      .catch(() => {}) // errors are shown by the API layer (e.g. forced password change)
+      .finally(() => setLoading(false));
     mentorAPI.list().then((res) => {
       const d = res.data.data;
       setSessions([...d.live, ...d.upcoming].slice(0, 3));

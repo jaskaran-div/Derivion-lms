@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
-import { coursesAPI } from "@/lib/api";
+import { coursesAPI, apiErrorMessage } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import toast from "react-hot-toast";
-import { ArrowLeft, Upload, Plus, X, ImageIcon, Video } from "lucide-react";
+import { ArrowLeft, Plus, X, ImageIcon, Video } from "lucide-react";
 
 const schema = z.object({
   title: z.string().min(5, "Title must be at least 5 characters"),
@@ -44,7 +44,7 @@ export default function NewCoursePage() {
   const [objectives, setObjectives] = useState<string[]>([""]);
   const [isFreeChecked, setIsFreeChecked] = useState(false);
 
-  const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors }, setValue } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { level: "Beginner", language: "English", price: "0", emiEnabled: false },
   });
@@ -94,7 +94,7 @@ export default function NewCoursePage() {
       if (thumbnail) {
         try {
           await coursesAPI.uploadThumbnail(courseId, thumbnail);
-        } catch (uploadErr: any) {
+        } catch (uploadErr) {
           console.error("Thumbnail upload failed:", uploadErr);
           toast.error("Course created, but thumbnail upload failed.");
         }
@@ -104,7 +104,7 @@ export default function NewCoursePage() {
       if (previewVideo) {
         try {
           await coursesAPI.uploadPreviewVideo(courseId, previewVideo);
-        } catch (uploadErr: any) {
+        } catch (uploadErr) {
           console.error("Preview video upload failed:", uploadErr);
           toast.error("Course created, but preview video upload failed.");
         }
@@ -112,8 +112,8 @@ export default function NewCoursePage() {
 
       toast.success("Course created! Now add sections and lesson videos.");
       router.push(`/admin/courses/${courseId}`);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to create course.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to create course."));
     } finally {
       setLoading(false);
     }

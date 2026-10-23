@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
-import { usersAPI } from "@/lib/api";
+import { usersAPI, apiErrorMessage } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -36,8 +36,8 @@ export default function NewUserPage() {
       await usersAPI.create(data);
       toast.success("User created successfully!");
       router.push("/admin/users");
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to create user.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to create user."));
     } finally {
       setLoading(false);
     }

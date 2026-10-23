@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { certificateAPI } from "@/lib/api";
+import { useParams } from "next/navigation";
+import { apiErrorMessage, certificateAPI, certificatePdfUrl } from "@/lib/api";
 import { Award, CheckCircle, XCircle, Shield, GraduationCap, Calendar } from "lucide-react";
 import Link from "next/link";
 
 interface CertData {
   certificateNo: string;
+  certificateId?: string;
   recipientName: string;
   courseTitle: string;
   courseLevel: string;
@@ -15,28 +16,21 @@ interface CertData {
   isValid: boolean;
 }
 
-export default function CertificateVerifyPage({ params }: { params: { id: string } }) {
+export default function CertificateVerifyPage() {
+  const { id } = useParams<{ id: string }>();
   const [cert, setCert] = useState<CertData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (params.id) {
-      verifyCert(params.id);
-    }
-  }, [params.id]);
-
-  const verifyCert = async (id: string) => {
-    setLoading(true);
-    try {
-      const res = await certificateAPI.verify(id);
-      setCert(res.data.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || "Certificate not found or invalid.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!id) return;
+    let cancelled = false;
+    certificateAPI.verify(id)
+      .then((res) => { if (!cancelled) setCert(res.data.data); })
+      .catch((err) => { if (!cancelled) setError(apiErrorMessage(err, "Certificate not found or invalid.")); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [id]);
 
   const formatDate = (d: string) =>
     new Date(d).toLocaleDateString("en-IN", {
@@ -123,6 +117,12 @@ export default function CertificateVerifyPage({ params }: { params: { id: string
                     <span className="cert-detail-value cert-no">{cert.certificateNo}</span>
                   </div>
                 </div>
+                {cert.certificateId && (
+                  <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 20, flexWrap: "wrap" }}>
+                    <a href={certificatePdfUrl(cert.certificateId)} target="_blank" rel="noreferrer" className="btn btn-dark btn-sm">View certificate</a>
+                    <a href={certificatePdfUrl(cert.certificateId, true)} className="btn btn-secondary btn-sm">Download PDF</a>
+                  </div>
+                )}
               </div>
 
               <div className="cert-authenticity-note">

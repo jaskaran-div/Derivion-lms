@@ -3,14 +3,12 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
-import { coursesAPI, quizAPI } from "@/lib/api";
+import { coursesAPI, quizAPI, apiErrorMessage } from "@/lib/api";
 import Link from "next/link";
 import { isAxiosError } from "axios";
 import toast from "react-hot-toast";
 import {
-  ArrowLeft, Plus, Trash2, Upload, ChevronDown, ChevronUp,
-  Video, FileText, Link2, HelpCircle, ToggleLeft, ToggleRight,
-  Edit, GripVertical, Eye, Save, Lock, Unlock, Film, Book
+  ArrowLeft, Plus, Trash2, Upload, ChevronDown, ChevronUp, FileText, Link2, HelpCircle, ToggleLeft, ToggleRight, GripVertical, Lock, Unlock, Film, Book,
 } from "lucide-react";
 
 type ContentType = "VIDEO" | "PDF" | "DOCUMENT" | "QUIZ" | "LINK";
@@ -28,7 +26,7 @@ interface Section {
 interface Course {
   id: string; title: string; slug: string; status: string; price: number;
   emiEnabled: boolean;
-  sections: Section[]; assessments: any[];
+  sections: Section[];
 }
 
 const contentTypeIcon = (type: ContentType) => {
@@ -60,7 +58,6 @@ export default function CourseEditPage() {
   const [emiEnabled, setEmiEnabled] = useState(false);
   const [savingEmi, setSavingEmi] = useState(false);
 
-  useEffect(() => { if (id) loadCourse(); }, [id]);
 
   // Load the quiz bank the first time the admin picks "Quiz" as a content type
   useEffect(() => {
@@ -69,21 +66,25 @@ export default function CourseEditPage() {
     }
   }, [addingContent?.type, quizzes]);
 
-  const loadCourse = async () => {
-    try {
-      const res = await coursesAPI.adminGetOne(id as string);
-      setCourse(res.data.data);
-      setEmiEnabled(res.data.data.emiEnabled === true);
-      // Auto-expand all sections by default so admin sees all lessons
-      if (res.data.data.sections.length > 0) {
-        setExpandedSections(new Set(res.data.data.sections.map((s: any) => s.id)));
-      }
-    } catch {
-      toast.error("Failed to load course.");
-    } finally {
-      setLoading(false);
-    }
+  const loadCourse = () => {
+    return coursesAPI.adminGetOne(id as string)
+      .then((res) => {
+        setCourse(res.data.data);
+        setEmiEnabled(res.data.data.emiEnabled === true);
+        // Auto-expand all sections by default so admin sees all lessons
+        if (res.data.data.sections.length > 0) {
+        setExpandedSections(new Set(res.data.data.sections.map((s: Section) => s.id)));
+        }
+      })
+      .catch(() => {
+        toast.error("Failed to load course.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
+
+  useEffect(() => { if (id) loadCourse(); }, [id]);
 
   const handleSaveEmi = async () => {
     if (!course) return;
@@ -156,8 +157,8 @@ export default function CourseEditPage() {
       setAddingContent(null);
       toast.success("Content added.");
       loadCourse();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to add content.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to add content."));
     }
   };
 
@@ -181,8 +182,8 @@ export default function CourseEditPage() {
       toast.success("Video uploaded successfully!");
       setUploadProgress((p) => { const { [contentId]: _, ...rest } = p; return rest; });
       loadCourse();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to upload video.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to upload video."));
       setUploadProgress((p) => { const { [contentId]: _, ...rest } = p; return rest; });
     }
   };
@@ -192,8 +193,8 @@ export default function CourseEditPage() {
       await coursesAPI.uploadDocument(contentId, file);
       toast.success("Document uploaded!");
       loadCourse();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to upload document.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to upload document."));
     }
   };
 
@@ -394,7 +395,7 @@ export default function CourseEditPage() {
                   {/* Section contents */}
                   {expandedSections.has(section.id) && (
                     <div className="accordion-body" style={{ maxHeight: "none", overflow: "visible" }}>
-                      {section.contents.sort((a, b) => a.order - b.order).map((content, ci) => (
+                      {section.contents.sort((a, b) => a.order - b.order).map((content) => (
                         <div
                           key={content.id}
                           className="accordion-lesson"

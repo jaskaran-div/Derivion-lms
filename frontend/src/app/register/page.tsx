@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import toast from "react-hot-toast";
 import { Eye, EyeOff, Mail, Lock, User, Phone, ArrowRight } from "lucide-react";
-import { authAPI } from "@/lib/api";
+import { apiErrorMessage, authAPI, settingsAPI } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 
 const schema = z.object({
@@ -34,6 +34,14 @@ export default function RegisterPage() {
   const { setUser, setTokens } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [registrationOpen, setRegistrationOpen] = useState(true);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+
+  useEffect(() => {
+    settingsAPI.getPublic()
+      .then((res) => setRegistrationOpen(res.data.data.allowSelfRegistration))
+      .catch(() => {});
+  }, []);
 
   const {
     register,
@@ -44,15 +52,19 @@ export default function RegisterPage() {
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
-      const { confirmPassword, ...payload } = data;
+      const { confirmPassword: _confirm, ...payload } = data;
       const res = await authAPI.register(payload);
-      const { user, accessToken, refreshToken } = res.data.data;
+      if (res.data.data?.requiresVerification) {
+        setSentTo(payload.email);
+        return;
+      }
+      const { user, accessToken } = res.data.data;
+      setTokens(accessToken);
       setUser(user);
-      setTokens(accessToken, refreshToken);
       toast.success("Account created successfully! Welcome to Derivion! 🎉");
       router.push("/dashboard");
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Registration failed.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Registration failed."));
     } finally {
       setLoading(false);
     }
@@ -105,6 +117,19 @@ export default function RegisterPage() {
         <div className="auth-form-container" style={{ maxWidth: 460 }}>
           <div className="auth-title">Create your account</div>
           <p className="auth-subtitle">Free to join. Start learning today.</p>
+
+          {sentTo && (
+            <div className="alert alert-success" style={{ marginBottom: 20, display: "block" }}>
+              <strong>Check your inbox.</strong> We sent a verification link to {sentTo}. Open it to activate your account, then{" "}
+              <Link href="/login" style={{ fontWeight: 600, textDecoration: "underline" }}>log in</Link>.
+            </div>
+          )}
+
+          {!registrationOpen && (
+            <div className="alert alert-warning" style={{ marginBottom: 20, display: "block" }}>
+              Self registration is currently closed. Please contact your school or administrator for an account.
+            </div>
+          )}
 
           <form onSubmit={handleSubmit(onSubmit)}>
             <div className="grid-2">
@@ -222,7 +247,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               className="btn btn-primary w-full"
-              disabled={loading}
+              disabled={loading || !registrationOpen || Boolean(sentTo)}
               style={{ height: 46, fontSize: 15, justifyContent: "center" }}
             >
               {loading ? (

@@ -5,35 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import {
-  LayoutDashboard,
-  BookOpen,
-  Users,
-  CreditCard,
-  Settings,
-  LogOut,
-  ChevronDown,
-  GraduationCap,
-  BarChart3,
-  FolderOpen,
-  Bell,
-  Search,
-  MessageSquare,
-  Award,
-  Tag,
-  PlusCircle,
-  ListOrdered,
-  Shield,
-  ChevronRight,
-  PlayCircle,
-  ShoppingCart,
-  Home,
-  BookMarked,
-  Building2,
-  Upload,
-  ScrollText,
-  TrendingUp,
-  Video,
-  HelpCircle,
+  LayoutDashboard, BookOpen, Users, CreditCard, Settings, LogOut, ChevronDown, GraduationCap, BarChart3, Bell, Search, MessageSquare, Award, Tag, PlusCircle, ListOrdered, Home, BookMarked, Building2, Upload, ScrollText, TrendingUp, Video, HelpCircle,
 } from "lucide-react";
 
 interface NavItem {

@@ -6,6 +6,7 @@ import { Bell, Menu, Search, X, ChevronRight, ChevronDown, Settings, LogOut, Che
 import { useAuthStore } from "@/store/authStore";
 import { usersAPI } from "@/lib/api";
 import Link from "next/link";
+import { useNow } from "@/lib/useNow";
 
 interface HeaderProps {
   title?: string;
@@ -23,6 +24,7 @@ interface Notification {
 }
 
 export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
+  const now = useNow();
   const router = useRouter();
   const { user } = useAuthStore();
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -34,9 +36,6 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -51,12 +50,14 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const fetchNotifications = async () => {
-    try {
-      const { data } = await usersAPI.getNotifications();
-      setNotifications(data.data);
-    } catch {}
-  };
+  const fetchNotifications = () =>
+    usersAPI.getNotifications()
+      .then(({ data }) => setNotifications(data.data))
+      .catch(() => {});
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
 
   const markAllRead = async () => {
     try {
@@ -79,7 +80,7 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
   };
 
   const formatTime = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime();
+    const diff = now - new Date(dateStr).getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 60) return `${mins}m ago`;
     const hrs = Math.floor(mins / 60);
@@ -258,7 +259,7 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
                 </div>
               ) : (
                 notifications.map((notif) => {
-                  const typeColors: Record<string, { bg: string; color: string; icon: any }> = {
+                  const typeColors: Record<string, { bg: string; color: string; icon: React.ReactNode }> = {
                     SUCCESS: {
                       bg: "#ecfdf5",
                       color: "#059669",

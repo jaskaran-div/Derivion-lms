@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { Settings, Globe, CreditCard, Mail, Shield, BookOpen } from "lucide-react";
+import { Globe, CreditCard, Mail, Shield, BookOpen } from "lucide-react";
 import toast from "react-hot-toast";
+import { apiErrorMessage, settingsAPI } from "@/lib/api";
 
 export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState("general");
@@ -25,11 +26,39 @@ export default function AdminSettingsPage() {
     maxEnrollmentsPerUser: "50",
   });
 
+  const [loaded, setLoaded] = useState(false);
+
+  // Load the stored settings
+  useEffect(() => {
+    let cancelled = false;
+    settingsAPI.getAdmin()
+      .then((res) => {
+        if (cancelled) return;
+        const { general: g, enrollment: e } = res.data.data;
+        setGeneral(g);
+        setEnrollmentSettings({ ...e, maxEnrollmentsPerUser: String(e.maxEnrollmentsPerUser) });
+      })
+      .catch(() => toast.error("Could not load settings."))
+      .finally(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleSave = async () => {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 800));
-    toast.success("Settings saved successfully!");
-    setSaving(false);
+    try {
+      const res = await settingsAPI.update({
+        general,
+        enrollment: { ...enrollmentSettings, maxEnrollmentsPerUser: Number(enrollmentSettings.maxEnrollmentsPerUser) || 0 },
+      });
+      const { general: g, enrollment: e } = res.data.data;
+      setGeneral(g);
+      setEnrollmentSettings({ ...e, maxEnrollmentsPerUser: String(e.maxEnrollmentsPerUser) });
+      toast.success("Settings saved.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to save settings."));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const tabs = [
@@ -169,7 +198,7 @@ export default function AdminSettingsPage() {
                     style={{ maxWidth: 160 }}
                     value={enrollmentSettings.maxEnrollmentsPerUser}
                     onChange={e => setEnrollmentSettings({...enrollmentSettings, maxEnrollmentsPerUser: e.target.value})}
-                    min={1}
+                    min={0}
                   />
                   <div className="form-hint">Set to 0 for unlimited</div>
                 </div>
@@ -271,7 +300,7 @@ export default function AdminSettingsPage() {
 
           {/* Save button */}
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving || !loaded}>
               {saving ? "Saving..." : "Save Settings"}
             </button>
           </div>

@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { usersAPI } from "@/lib/api";
-import { CreditCard, Search, Download } from "lucide-react";
+import { apiErrorMessage, usersAPI } from "@/lib/api";
+import toast from "react-hot-toast";
+import { CreditCard } from "lucide-react";
 
 interface Payment {
   id: string;
@@ -25,21 +26,41 @@ export default function AdminPaymentsPage() {
   const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchPayments = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: any = { page, limit };
-      if (status) params.status = status;
-      const res = await usersAPI.getPayments(params);
-      setPayments(res.data.data.payments);
-      setTotal(res.data.data.pagination.total);
-    } catch {
-    } finally {
-      setLoading(false);
-    }
+  const fetchPayments = useCallback(() => {
+    const params: Record<string, string | number> = { page, limit };
+    if (status) params.status = status;
+    return usersAPI.getPayments(params)
+      .then((res) => {
+        setPayments(res.data.data.payments);
+        setTotal(res.data.data.pagination.total);
+      })
+      .catch(() => {})
+      .finally(() => {
+        setLoading(false);
+      });
   }, [page, status]);
 
   useEffect(() => { fetchPayments(); }, [fetchPayments]);
+
+  const [refunding, setRefunding] = useState<string | null>(null);
+
+  const handleRefund = async (payment: Payment) => {
+    const name = `${payment.user.firstName} ${payment.user.lastName}`;
+    const reason = window.prompt(`Refund ${formatCurrency(parseFloat(String(payment.amount)))} to ${name}? Their course access will be removed.
+
+Reason (optional):`, "");
+    if (reason === null) return;
+    setRefunding(payment.id);
+    try {
+      await usersAPI.refundPayment(payment.id, reason || undefined);
+      toast.success("Refund issued and course access removed.");
+      fetchPayments();
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Refund failed."));
+    } finally {
+      setRefunding(null);
+    }
+  };
 
   const getStatusBadge = (s: string) => {
     const map: Record<string, string> = {
@@ -48,7 +69,7 @@ export default function AdminPaymentsPage() {
       FAILED: "badge-danger",
       REFUNDED: "badge-gray",
     };
-    return <span className={`badge ${map[s] || "badge-gray"}`}>{s}</span>;
+    return <span className={`badge badge-dot ${map[s] || "badge-gray"}`}>{s.charAt(0) + s.slice(1).toLowerCase()}</span>;
   };
 
   const formatCurrency = (amount: number) =>
@@ -115,18 +136,19 @@ export default function AdminPaymentsPage() {
               <th>Amount</th>
               <th>Status</th>
               <th>Date</th>
+              <th><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               [1,2,3,4,5].map(i => (
                 <tr key={i}>
-                  {[1,2,3,4,5,6].map(j => <td key={j}><div className="skeleton" style={{ height: 16 }} /></td>)}
+                  {[1,2,3,4,5,6,7].map(j => <td key={j}><div className="skeleton" style={{ height: 16 }} /></td>)}
                 </tr>
               ))
             ) : payments.length === 0 ? (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <div className="empty-state">
                     <div className="empty-state-icon">💳</div>
                     <div className="empty-state-title">No payments found</div>
@@ -163,6 +185,13 @@ export default function AdminPaymentsPage() {
                   <div style={{ fontSize: 12, color: "var(--gray-500)" }}>
                     {formatDate(payment.createdAt)}
                   </div>
+                </td>
+                <td>
+                  {payment.status === "SUCCESS" && payment.razorpayPaymentId && (
+                    <button className="btn btn-secondary btn-sm" disabled={refunding === payment.id} onClick={() => handleRefund(payment)}>
+                      {refunding === payment.id ? "Refunding…" : "Refund"}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

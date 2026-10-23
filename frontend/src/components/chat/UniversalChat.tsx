@@ -1,22 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { chatAPI } from "@/lib/api";
+import { chatAPI, apiErrorMessage } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import toast from "react-hot-toast";
 import {
-  Send,
-  Search,
-  MessageSquare,
-  User,
-  Shield,
-  GraduationCap,
-  Clock,
-  Sparkles,
-  X,
-  Menu,
-  ChevronRight,
-  CheckCheck,
+  Send, Search, MessageSquare, User, Shield, GraduationCap, Sparkles, X, Menu, ChevronRight, CheckCheck,
 } from "lucide-react";
 
 export interface UserProfile {
@@ -67,11 +56,16 @@ export default function UniversalChat({ hint }: { hint?: string }) {
   const [text, setText] = useState("");
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
-  const [searching, setSearching] = useState(false);
+  // Results are tagged with the query they belong to; "searching" means the current query has no results yet
+  const [searchState, setSearchState] = useState<{ q: string; results: UserProfile[] }>({ q: "", results: [] });
+  const trimmedQuery = searchQuery.trim();
+  const searchResults = trimmedQuery && searchState.q === trimmedQuery ? searchState.results : [];
+  const searching = Boolean(trimmedQuery) && searchState.q !== trimmedQuery;
 
   const [loadingConversations, setLoadingConversations] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(false);
+  // Messages are loading until the active thread's messages have arrived
+  const [loadedThreadId, setLoadedThreadId] = useState<string | null>(null);
+  const loadingMessages = Boolean(activeThreadId) && loadedThreadId !== activeThreadId;
   const [sending, setSending] = useState(false);
 
   // Mobile drawer toggle
@@ -80,40 +74,35 @@ export default function UniversalChat({ hint }: { hint?: string }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load user's conversations
-  const loadConversations = useCallback(async () => {
-    try {
-      const res = await chatAPI.getConversations();
-      const convList: ConversationItem[] = res.data.data || [];
-      setConversations(convList);
-
-      // Auto-select first conversation if none selected
-      if (!activeThreadId && convList.length > 0) {
-        setActiveThreadId(convList[0].id);
-        setActivePartner(convList[0].partner);
-      }
-    } catch (err) {
-      console.error("Failed to load conversations:", err);
-    } finally {
-      setLoadingConversations(false);
-    }
-  }, [activeThreadId]);
+  const loadConversations = useCallback(
+    () =>
+      chatAPI
+        .getConversations()
+        .then((res) => {
+          const convList: ConversationItem[] = res.data.data || [];
+          setConversations(convList);
+          // Auto-select the first conversation if none is open (its partner arrives with its messages)
+          if (convList.length > 0) setActiveThreadId((current) => current ?? convList[0].id);
+        })
+        .catch((err) => console.error("Failed to load conversations:", err))
+        .finally(() => setLoadingConversations(false)),
+    []
+  );
 
   // Load messages for the active conversation
-  const loadMessages = useCallback(async (threadId: string, silent = false) => {
-    if (!silent) setLoadingMessages(true);
-    try {
-      const res = await chatAPI.getConversationMessages(threadId);
-      const data = res.data.data;
-      setMessages(data.messages || []);
-      if (data.partner) {
-        setActivePartner(data.partner);
-      }
-    } catch (err) {
-      console.error("Failed to load messages:", err);
-    } finally {
-      if (!silent) setLoadingMessages(false);
-    }
-  }, []);
+  const loadMessages = useCallback(
+    (threadId: string) =>
+      chatAPI
+        .getConversationMessages(threadId)
+        .then((res) => {
+          const data = res.data.data;
+          setMessages(data.messages || []);
+          if (data.partner) setActivePartner(data.partner);
+        })
+        .catch((err) => console.error("Failed to load messages:", err))
+        .finally(() => setLoadedThreadId(threadId)),
+    []
+  );
 
   // Initial load
   useEffect(() => {
@@ -131,7 +120,7 @@ export default function UniversalChat({ hint }: { hint?: string }) {
   useEffect(() => {
     const timer = setInterval(() => {
       if (activeThreadId) {
-        loadMessages(activeThreadId, true);
+        loadMessages(activeThreadId);
       }
       chatAPI
         .getConversations()
@@ -151,27 +140,19 @@ export default function UniversalChat({ hint }: { hint?: string }) {
 
   // User search debounce
   useEffect(() => {
-    const q = searchQuery.trim();
-    if (!q) {
-      setSearchResults([]);
-      setSearching(false);
-      return;
-    }
-
-    setSearching(true);
-    const timeout = setTimeout(async () => {
-      try {
-        const res = await chatAPI.searchUsers(q);
-        setSearchResults(res.data.data || []);
-      } catch (err) {
-        console.error("Search failed:", err);
-      } finally {
-        setSearching(false);
-      }
+    const q = trimmedQuery;
+    if (!q) return;
+    const timeout = setTimeout(() => {
+      chatAPI
+        .searchUsers(q)
+        .then((res) => setSearchState({ q, results: res.data.data || [] }))
+        .catch((err) => {
+          console.error("Search failed:", err);
+          setSearchState({ q, results: [] });
+        });
     }, 300);
-
     return () => clearTimeout(timeout);
-  }, [searchQuery]);
+  }, [trimmedQuery]);
 
   // Start or open chat with a selected user
   const handleSelectUserToChat = async (targetUser: UserProfile) => {
@@ -181,12 +162,11 @@ export default function UniversalChat({ hint }: { hint?: string }) {
       setActiveThreadId(threadId);
       setActivePartner(partner || targetUser);
       setSearchQuery("");
-      setSearchResults([]);
       setShowRightMenuMobile(false);
       await loadConversations();
       await loadMessages(threadId);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to start conversation.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to start conversation."));
     }
   };
 
@@ -217,8 +197,8 @@ export default function UniversalChat({ hint }: { hint?: string }) {
             : c
         )
       );
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to send message.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to send message."));
     } finally {
       setSending(false);
     }

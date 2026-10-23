@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
 import { coursesAPI } from "@/lib/api";
 import Link from "next/link";
-import { Search, Filter, SlidersHorizontal, Users, Clock, BookOpen } from "lucide-react";
+import { Search, Users, Clock } from "lucide-react";
 import CourseShareMenu from "@/components/courses/CourseShareMenu";
 
 interface Course {
@@ -32,7 +33,21 @@ interface Category {
   name: string;
 }
 
+// The header search sends people to /courses?search=…; a new term remounts the list with it
 export default function CoursesPage() {
+  return (
+    <Suspense fallback={null}>
+      <CoursesFromUrl />
+    </Suspense>
+  );
+}
+
+function CoursesFromUrl() {
+  const term = useSearchParams().get("search") || "";
+  return <CoursesCatalog key={term} initialSearch={term} />;
+}
+
+function CoursesCatalog({ initialSearch }: { initialSearch: string }) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,34 +56,36 @@ export default function CoursesPage() {
   const limit = 12;
 
   // Filters
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [categoryId, setCategoryId] = useState("");
   const [level, setLevel] = useState("");
   const [sortBy, setSortBy] = useState("createdAt");
   const [priceFilter, setPriceFilter] = useState(""); // "free" | "paid" | ""
 
-  const fetchCourses = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: any = { page, limit, sortBy, sortOrder: "desc" };
-      if (search) params.search = search;
-      if (categoryId) params.categoryId = categoryId;
-      if (level) params.level = level;
-      if (priceFilter === "free") params.isFree = "true";
-
-      const res = await coursesAPI.getAll(params);
-      setCourses(res.data.data.courses);
-      setTotal(res.data.data.pagination.total);
-    } catch {
-    } finally {
-      setLoading(false);
-    }
+  const fetchCourses = useCallback(() => {
+    const params: Record<string, string | number> = { page, limit, sortBy, sortOrder: sortBy === "price" ? "asc" : "desc" };
+    if (search) params.search = search;
+    if (categoryId) params.categoryId = categoryId;
+    if (level) params.level = level;
+    if (priceFilter === "free") params.isFree = "true";
+    return coursesAPI.getAll(params)
+      .then((res) => {
+        setCourses(res.data.data.courses);
+        setTotal(res.data.data.pagination.total);
+      })
+      .catch(() => {
+        setCourses([]);
+        setTotal(0);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [page, search, categoryId, level, sortBy, priceFilter]);
 
   useEffect(() => { fetchCourses(); }, [fetchCourses]);
 
   useEffect(() => {
-    coursesAPI.getCategories().then((res) => setCategories(res.data.data));
+    coursesAPI.getCategories().then((res) => setCategories(res.data.data)).catch(() => {});
   }, []);
 
   const formatDuration = (seconds: number) => {
@@ -99,7 +116,7 @@ export default function CoursesPage() {
   };
 
   return (
-    <AppLayout>
+    <AppLayout allowGuest>
       {/* Header */}
       <div className="page-header">
         <div>
@@ -272,7 +289,7 @@ export default function CoursesPage() {
                       course.discountPrice ? parseFloat(String(course.discountPrice)) : undefined,
                       course.isFree
                     )}
-                    <button className="btn btn-primary btn-sm">Enroll Now</button>
+                    <span className="btn btn-dark btn-sm">View course</span>
                   </div>
                 </div>
                 </div>

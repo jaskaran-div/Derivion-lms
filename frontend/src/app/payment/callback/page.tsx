@@ -9,19 +9,16 @@ import Link from "next/link";
 function PaymentCallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [status, setStatus] = useState<"loading" | "success" | "failed">("loading");
-  const [message, setMessage] = useState("");
+  const orderId = searchParams.get("razorpay_order_id") || searchParams.get("order_id");
+  // A callback without an order ID is invalid; no request needed to know that
+  const [status, setStatus] = useState<"loading" | "success" | "failed">(orderId ? "loading" : "failed");
+  const [message, setMessage] = useState(orderId ? "" : "Invalid payment response.");
 
   useEffect(() => {
-    const orderId = searchParams.get("razorpay_order_id") || searchParams.get("order_id");
     const paymentId = searchParams.get("razorpay_payment_id") || undefined;
     const signature = searchParams.get("razorpay_signature") || undefined;
 
-    if (!orderId) {
-      setStatus("failed");
-      setMessage("Invalid payment response.");
-      return;
-    }
+    if (!orderId) return;
 
     paymentsAPI
       .verifyPayment({
@@ -43,7 +40,7 @@ function PaymentCallbackContent() {
         setStatus("failed");
         setMessage("Failed to verify payment. Please contact support.");
       });
-  }, [searchParams]);
+  }, [searchParams, orderId]);
 
   return (
     <div

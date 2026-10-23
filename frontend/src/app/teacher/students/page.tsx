@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { teacherAPI } from "@/lib/api";
+import { teacherAPI, apiErrorMessage } from "@/lib/api";
 import toast from "react-hot-toast";
 import { Plus, Pencil, Trash2, Copy, X, Search } from "lucide-react";
 
@@ -17,7 +17,25 @@ interface Student {
   lastLogin?: string;
   _count: { enrollments: number };
   enrollments?: { course: { id: string; title: string } }[];
+  report?: { averageProgress: number; completedCourses: number; watchSeconds: number; lastActive: string | null };
 }
+
+const formatWatch = (seconds: number) => {
+  if (!seconds) return "0m";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m`;
+};
+
+const timeAgo = (iso: string) => {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+};
 
 interface Course {
   id: string;
@@ -42,21 +60,17 @@ export default function TeacherStudentsPage() {
   });
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [s, c] = await Promise.all([
-        teacherAPI.listStudents({ search }),
-        teacherAPI.listCourses(),
-      ]);
-      setStudents(s.data.data);
-      setCourses(c.data.data);
-    } catch {
-      toast.error("Failed to load students.");
-    } finally {
-      setLoading(false);
-    }
-  }, [search]);
+  const load = useCallback(
+    () =>
+      Promise.all([teacherAPI.listStudents({ search }), teacherAPI.listCourses()])
+        .then(([studentsRes, coursesRes]) => {
+          setStudents(studentsRes.data.data);
+          setCourses(coursesRes.data.data);
+        })
+        .catch(() => toast.error("Failed to load students."))
+        .finally(() => setLoading(false)),
+    [search]
+  );
 
   useEffect(() => { load(); }, [load]);
 
@@ -117,8 +131,8 @@ export default function TeacherStudentsPage() {
       }
       setShowForm(false);
       load();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Save failed.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Save failed."));
     } finally {
       setSaving(false);
     }
@@ -130,8 +144,8 @@ export default function TeacherStudentsPage() {
       await teacherAPI.deleteStudent(s.id);
       toast.success("Student deleted.");
       load();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Delete failed.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Delete failed."));
     }
   };
 
@@ -186,16 +200,19 @@ export default function TeacherStudentsPage() {
               <th>Student ID</th>
               <th>Guardian</th>
               <th>Courses</th>
+              <th>Progress</th>
+              <th>Watch time</th>
+              <th>Last active</th>
               <th>Status</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6}>Loading…</td></tr>
+              <tr><td colSpan={9}>Loading…</td></tr>
             ) : students.length === 0 ? (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={9}>
                   <div className="empty-state">
                     <div className="empty-state-title">No students yet</div>
                   </div>
@@ -221,6 +238,20 @@ export default function TeacherStudentsPage() {
                     <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{s.guardianPhone || ""}</div>
                   </td>
                   <td>{s._count?.enrollments ?? 0}</td>
+                  <td style={{ minWidth: 140 }}>
+                    {s.report && (s._count?.enrollments ?? 0) > 0 ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div className="progress-bar" style={{ width: 80 }} role="progressbar" aria-valuenow={Math.round(s.report.averageProgress)} aria-valuemin={0} aria-valuemax={100}>
+                          <div className="progress-fill" style={{ width: `${Math.round(s.report.averageProgress)}%` }} />
+                        </div>
+                        <span style={{ fontSize: 13, color: "var(--violet)" }}>{Math.round(s.report.averageProgress)}%</span>
+                      </div>
+                    ) : (
+                      <span style={{ color: "var(--gray-500)" }}>—</span>
+                    )}
+                  </td>
+                  <td>{s.report ? formatWatch(s.report.watchSeconds) : "—"}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{s.report?.lastActive ? timeAgo(s.report.lastActive) : "Never"}</td>
                   <td>
                     <span className={`badge badge-dot ${s.isActive ? "badge-success" : "badge-danger"}`}>
                       {s.isActive ? "Active" : "Inactive"}

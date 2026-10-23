@@ -6,8 +6,7 @@ import { coursesAPI } from "@/lib/api";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import {
-  Plus, Search, Edit, Trash2, Eye, ToggleLeft, ToggleRight,
-  BookOpen, Users, Clock, Filter,
+  Plus, Search, Edit, Trash2, ToggleLeft, ToggleRight, Users,
 } from "lucide-react";
 
 interface Course {
@@ -32,17 +31,18 @@ export default function AdminCoursesPage() {
   const [total, setTotal] = useState(0);
   const limit = 15;
 
-  const fetchCourses = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await coursesAPI.adminGetAll({ page, limit, search, status });
-      setCourses(res.data.data.courses);
-      setTotal(res.data.data.pagination.total);
-    } catch {
-      toast.error("Failed to load courses.");
-    } finally {
-      setLoading(false);
-    }
+  const fetchCourses = useCallback(() => {
+    return coursesAPI.adminGetAll({ page, limit, search, status })
+      .then((res) => {
+        setCourses(res.data.data.courses);
+        setTotal(res.data.data.pagination.total);
+      })
+      .catch(() => {
+        toast.error("Failed to load courses.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [page, search, status]);
 
   useEffect(() => { fetchCourses(); }, [fetchCourses]);

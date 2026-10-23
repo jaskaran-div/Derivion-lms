@@ -28,8 +28,19 @@ const ACTION_LABELS: Record<string, { label: string; color: string; icon: React.
 
 const ALL_ACTIONS = Object.keys(ACTION_LABELS);
 
+interface AuditLogRow {
+  id: string;
+  action: string;
+  targetId?: string | null;
+  targetType?: string | null;
+  details?: unknown;
+  ipAddress?: string | null;
+  createdAt: string;
+  user?: { firstName: string; lastName: string; role: string; email?: string } | null;
+}
+
 export default function AuditLogsPage() {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<AuditLogRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -39,26 +50,28 @@ export default function AuditLogsPage() {
 
   const LIMIT = 50;
 
-  useEffect(() => {
-    loadLogs();
-  }, [page, actionFilter]);
 
-  const loadLogs = async () => {
-    setLoading(true);
-    try {
-      const res = await auditAPI.list({
+  const loadLogs = () => {
+    return auditAPI.list({
         page,
         limit: LIMIT,
         action: actionFilter || undefined,
+      })
+      .then((res) => {
+        setLogs(res.data.data.logs);
+        setTotal(res.data.data.pagination.total);
+      })
+      .catch((err) => {
+        console.error(err);
+      })
+      .finally(() => {
+        setLoading(false);
       });
-      setLogs(res.data.data.logs);
-      setTotal(res.data.data.pagination.total);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
   };
+
+  useEffect(() => {
+    loadLogs();
+  }, [page, actionFilter]);
 
   const totalPages = Math.ceil(total / LIMIT);
 
@@ -188,7 +201,7 @@ export default function AuditLogsPage() {
                           </td>
                           <td className="audit-ip">{log.ipAddress || "—"}</td>
                           <td>
-                            {log.details && (
+                            {log.details != null && (
                               <button className="audit-expand-btn">
                                 {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                               </button>

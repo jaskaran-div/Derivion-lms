@@ -30,15 +30,17 @@ export default function AdminSupportInboxPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
-    try {
-      const res = await chatAPI.adminList();
-      setThreads(res.data.data || []);
-    } catch {
-      toast.error("Failed to load chats.");
-    } finally {
-      setLoading(false);
-    }
+  const load = () => {
+    return chatAPI.adminList()
+      .then((res) => {
+        setThreads(res.data.data || []);
+      })
+      .catch(() => {
+        toast.error("Failed to load chats.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   useEffect(() => {

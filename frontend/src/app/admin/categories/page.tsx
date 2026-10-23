@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { coursesAPI } from "@/lib/api";
+import { coursesAPI, apiErrorMessage } from "@/lib/api";
 import toast from "react-hot-toast";
 import { Plus, Edit, Trash2, X, Tag } from "lucide-react";
 
@@ -23,18 +23,21 @@ export default function CategoriesPage() {
   const [formData, setFormData] = useState({ name: "", description: "", icon: "" });
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { fetchCategories(); }, []);
 
-  const fetchCategories = async () => {
-    try {
-      const res = await coursesAPI.getCategories();
-      setCategories(res.data.data);
-    } catch {
-      toast.error("Failed to load categories.");
-    } finally {
-      setLoading(false);
-    }
+  const fetchCategories = () => {
+    return coursesAPI.getCategories()
+      .then((res) => {
+        setCategories(res.data.data);
+      })
+      .catch(() => {
+        toast.error("Failed to load categories.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
+
+  useEffect(() => { fetchCategories(); }, []);
 
   const openCreate = () => {
     setEditId(null);
@@ -64,8 +67,8 @@ export default function CategoriesPage() {
       }
       setShowForm(false);
       fetchCategories();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to save category.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to save category."));
     } finally {
       setSaving(false);
     }

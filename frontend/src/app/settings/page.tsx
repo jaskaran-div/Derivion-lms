@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuthStore } from "@/store/authStore";
-import { authAPI, usersAPI } from "@/lib/api";
+import { authAPI, usersAPI, apiErrorMessage } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -34,9 +34,9 @@ export default function SettingsPage() {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [loadingPassword, setLoadingPassword] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [payments, setPayments] = useState<any[]>([]);
+  const [payments, setPayments] = useState<{ id: string; amount: string | number; status: string; createdAt: string; course: { title: string } | null }[]>([]);
 
-  const { register: regProfile, handleSubmit: submitProfile, formState: { errors: errProfile }, reset: resetProfile } = useForm<ProfileForm>({
+  const { register: regProfile, handleSubmit: submitProfile, formState: { errors: errProfile } } = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
     defaultValues: { firstName: user?.firstName || "", lastName: user?.lastName || "" },
   });
@@ -67,11 +67,12 @@ export default function SettingsPage() {
   const onPasswordSubmit = async (data: PasswordForm) => {
     setLoadingPassword(true);
     try {
-      await authAPI.changePassword({ currentPassword: data.currentPassword, newPassword: data.newPassword });
-      toast.success("Password changed!");
+      const res = await authAPI.changePassword({ currentPassword: data.currentPassword, newPassword: data.newPassword });
+      if (res.data.data?.accessToken) useAuthStore.getState().setTokens(res.data.data.accessToken);
+      toast.success("Password changed. Other devices have been signed out.");
       resetPwd();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to change password.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to change password."));
     } finally {
       setLoadingPassword(false);
     }
@@ -267,8 +268,8 @@ export default function SettingsPage() {
                     <tbody>
                       {payments.map(p => (
                         <tr key={p.id}>
-                          <td style={{ fontSize: 14, fontWeight: 500 }}>{p.course.title}</td>
-                          <td style={{ fontWeight: 700 }}>₹{parseFloat(p.amount).toLocaleString("en-IN")}</td>
+                          <td style={{ fontSize: 14, fontWeight: 500 }}>{p.course?.title || "Deleted course"}</td>
+                          <td style={{ fontWeight: 700 }}>₹{parseFloat(String(p.amount)).toLocaleString("en-IN")}</td>
                           <td>
                             <span className={`badge ${p.status === "SUCCESS" ? "badge-success" : p.status === "PENDING" ? "badge-warning" : "badge-danger"}`}>
                               {p.status}

@@ -1,15 +1,16 @@
-import axios from "axios";
+import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
+  // Sends the httpOnly refresh cookie to /auth/*; the refresh token is never readable by page scripts
   withCredentials: true,
   timeout: 0,
 });
 
-// Request interceptor - add auth token
+// Request interceptor - add the short-lived access token
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== "undefined") {
@@ -23,35 +24,61 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor - handle token refresh
+// One refresh at a time: concurrent 401s wait for the same refresh call
+let refreshing: Promise<string> | null = null;
+
+export const refreshAccessToken = (): Promise<string> => {
+  if (!refreshing) {
+    refreshing = axios
+      .post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+      .then(({ data }) => {
+        const token = data.data.accessToken as string;
+        localStorage.setItem("access_token", token);
+        return token;
+      })
+      .finally(() => {
+        refreshing = null;
+      });
+  }
+  return refreshing;
+};
+
+type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+
+const endSession = () => {
+  clearAuth();
+  if (typeof window === "undefined") return;
+  // Let the persisted store reset itself, then go to login (keeping where the user was)
+  window.dispatchEvent(new Event("lms:logged-out"));
+  const here = window.location.pathname + window.location.search;
+  if (!window.location.pathname.startsWith("/login")) {
+    window.location.href = `/login?next=${encodeURIComponent(here)}`;
+  }
+};
+
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+  async (error: AxiosError<{ code?: string }>) => {
+    const originalRequest = error.config as RetriableConfig | undefined;
+    const status = error.response?.status;
+    const code = error.response?.data?.code;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (status === 403 && code === "MUST_CHANGE_PASSWORD" && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("lms:must-change-password"));
+      return Promise.reject(error);
+    }
+
+    const isAuthCall = originalRequest?.url?.includes("/auth/login") || originalRequest?.url?.includes("/auth/refresh");
+    const hadToken = typeof window !== "undefined" && Boolean(localStorage.getItem("access_token"));
+
+    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthCall && hadToken) {
       originalRequest._retry = true;
-
       try {
-        const refreshToken = localStorage.getItem("refresh_token");
-        if (!refreshToken) {
-          clearAuth();
-          window.location.href = "/login";
-          return Promise.reject(error);
-        }
-
-        const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-          refreshToken,
-        });
-
-        const { accessToken, refreshToken: newRefresh } = data.data;
-        localStorage.setItem("access_token", accessToken);
-        localStorage.setItem("refresh_token", newRefresh);
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+        const token = await refreshAccessToken();
+        originalRequest.headers.Authorization = `Bearer ${token}`;
         return api(originalRequest);
       } catch {
-        clearAuth();
-        window.location.href = "/login";
+        endSession();
         return Promise.reject(error);
       }
     }
@@ -61,9 +88,16 @@ api.interceptors.response.use(
 );
 
 export const clearAuth = () => {
+  if (typeof window === "undefined") return;
   localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
+  localStorage.removeItem("refresh_token"); // legacy key from before refresh moved to a cookie
   localStorage.removeItem("user");
+};
+
+// Message from an API error, with a fallback
+export const apiErrorMessage = (err: unknown, fallback: string): string => {
+  if (axios.isAxiosError<{ message?: string }>(err)) return err.response?.data?.message || fallback;
+  return fallback;
 };
 
 // ==================== AUTH ====================
@@ -77,6 +111,7 @@ export const authAPI = {
     lastName: string;
     phone?: string;
   }) => api.post("/auth/register", data),
+  logout: () => api.post("/auth/logout"),
   getMe: () => api.get("/auth/me"),
   updateProfile: (data: object) => api.put("/auth/me", data),
   changePassword: (data: {
@@ -87,7 +122,39 @@ export const authAPI = {
     api.post("/auth/forgot-password", { email }),
   resetPassword: (data: { token: string; password: string }) =>
     api.post("/auth/reset-password", data),
+  verifyEmail: (token: string) => api.post("/auth/verify-email", { token }),
+  resendVerification: (email: string) => api.post("/auth/resend-verification", { email }),
 };
+
+// ==================== SETTINGS ====================
+export interface PublicSettings {
+  siteName: string;
+  siteDescription: string;
+  contactEmail: string;
+  currency: string;
+  allowSelfRegistration: boolean;
+  requireEmailVerification: boolean;
+  allowGuestBrowsing: boolean;
+}
+
+export const settingsAPI = {
+  getPublic: () => api.get<{ data: PublicSettings }>("/settings/public"),
+  getAdmin: () => api.get("/admin/settings"),
+  update: (data: object) => api.put("/admin/settings", data),
+};
+
+// ==================== LEARNER EXTRAS ====================
+export const learnerAPI = {
+  bookmarks: () => api.get("/student/bookmarks"),
+  toggleBookmark: (courseId: string) => api.post(`/student/bookmarks/${courseId}`),
+  courseNotes: (courseId: string) => api.get(`/student/courses/${courseId}/notes`),
+  addNote: (data: { contentId: string; timestamp: number; text: string }) => api.post("/student/notes", data),
+  deleteNote: (id: string) => api.delete(`/student/notes/${id}`),
+};
+
+// Public certificate PDF (by the unguessable public certificate ID)
+export const certificatePdfUrl = (certificateId: string, download = false) =>
+  `${API_BASE_URL}/courses/verify/${certificateId}/pdf${download ? "?download=1" : ""}`;
 
 // ==================== COURSES ====================
 export const coursesAPI = {
@@ -209,6 +276,7 @@ export const quizAPI = {
   update: (id: string, data: object) => api.put(`/courses/admin/quizzes/${id}`, data),
   delete: (id: string) => api.delete(`/courses/admin/quizzes/${id}`),
   attempts: (id: string) => api.get(`/courses/admin/quizzes/${id}/attempts`),
+  analytics: (id: string) => api.get(`/courses/admin/quizzes/${id}/analytics`),
   addQuestion: (quizId: string, data: object) => api.post(`/courses/admin/quizzes/${quizId}/questions`, data),
   updateQuestion: (id: string, data: object) => api.put(`/courses/admin/questions/${id}`, data),
   deleteQuestion: (id: string) => api.delete(`/courses/admin/questions/${id}`),
@@ -241,6 +309,7 @@ export const usersAPI = {
     api.post(`/admin/users/${userId}/enroll`, { courseId }),
   getDashboard: () => api.get("/admin/dashboard"),
   getPayments: (params?: object) => api.get("/admin/payments", { params }),
+  refundPayment: (id: string, reason?: string) => api.post(`/admin/payments/${id}/refund`, { reason }),
   broadcastNotification: (data: object) =>
     api.post("/notifications/send", data),
   // Student
