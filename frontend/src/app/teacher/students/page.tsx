@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { teacherAPI, apiErrorMessage } from "@/lib/api";
 import toast from "react-hot-toast";
-import { Plus, Pencil, Trash2, Copy, X, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, X, Search, KeyRound } from "lucide-react";
 
 interface Student {
   id: string;
@@ -149,6 +149,19 @@ export default function TeacherStudentsPage() {
     }
   };
 
+  // New one-time password for a student who lost theirs (shown once, like on creation)
+  const resetPassword = async (s: Student) => {
+    if (!confirm(`Reset the password for ${s.firstName} ${s.lastName}? Their current password will stop working.`)) return;
+    try {
+      const res = await teacherAPI.resetStudentPassword(s.id);
+      const creds = res.data.data.credentials;
+      setCredentials({ studentId: creds.studentId, password: creds.password, name: `${s.firstName} ${s.lastName}` });
+      toast.success("New password generated. Copy it now — it cannot be shown again.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Password reset failed."));
+    }
+  };
+
   const copyText = async (value: string, label: string) => {
     await navigator.clipboard.writeText(value);
     toast.success(`${label} copied`);
@@ -261,6 +274,9 @@ export default function TeacherStudentsPage() {
                     <button className="btn btn-ghost btn-icon" onClick={() => openEdit(s)} title="Edit">
                       <Pencil size={14} />
                     </button>
+                    <button className="btn btn-ghost btn-icon" onClick={() => resetPassword(s)} title="Reset password" aria-label={`Reset password for ${s.firstName} ${s.lastName}`}>
+                      <KeyRound size={14} />
+                    </button>
                     <button className="btn btn-ghost btn-icon" onClick={() => remove(s)} title="Delete">
                       <Trash2 size={14} color="var(--danger)" />
                     </button>
@@ -326,7 +342,7 @@ export default function TeacherStudentsPage() {
               )}
               <div className="alert alert-info" style={{ fontSize: 12 }}>
                 {editing
-                  ? "Passwords cannot be changed here. Use Support Chat to ask admin for a reset."
+                  ? "To give this student a new password, use the key button in the students list."
                   : "A Student ID and password will be generated. Copy the password immediately — it is shown only once."}
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>

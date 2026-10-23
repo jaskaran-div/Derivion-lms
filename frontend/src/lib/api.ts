@@ -366,6 +366,7 @@ export const teacherAPI = {
   createStudent: (data: object) => api.post("/teacher/students", data),
   updateStudent: (id: string, data: object) => api.put(`/teacher/students/${id}`, data),
   deleteStudent: (id: string) => api.delete(`/teacher/students/${id}`),
+  resetStudentPassword: (id: string) => api.post(`/teacher/students/${id}/reset-password`),
   enrollStudent: (id: string, courseId: string) =>
     api.post(`/teacher/students/${id}/enroll`, { courseId }),
   listCourses: () => api.get("/teacher/courses"),

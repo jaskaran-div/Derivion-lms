@@ -70,7 +70,7 @@ export default function HomePage() {
           </p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <Link href="/courses" className="btn btn-dark btn-lg">Browse courses <ArrowRight size={18} /></Link>
-            <Link href="/register" className="btn btn-secondary btn-lg">Create free account</Link>
+            <Link href="/login" className="btn btn-secondary btn-lg">Log in</Link>
           </div>
         </div>
         <div className="landing-hero-art" aria-hidden="true">
@@ -158,9 +158,9 @@ export default function HomePage() {
 
       {/* CTA */}
       <section className="hero-course-card" style={{ marginTop: 48, padding: "clamp(24px, 5vw, 40px)", textAlign: "center", alignItems: "center" }}>
-        <h2 className="section-title">Ready to start?</h2>
-        <p style={{ color: "var(--gray-700)", maxWidth: 480 }}>Create a free account and enroll in your first course in minutes.</p>
-        <Link href="/register" className="btn btn-dark btn-lg">Get started <ArrowRight size={18} /></Link>
+        <h2 className="section-title">Already have your login?</h2>
+        <p style={{ color: "var(--gray-700)", maxWidth: 480 }}>Accounts are provided by your school or administrator. Log in to continue learning.</p>
+        <Link href="/login" className="btn btn-dark btn-lg">Log in <ArrowRight size={18} /></Link>
       </section>
 
       <footer style={{ marginTop: 40, padding: "20px 0", textAlign: "center", fontSize: 13, color: "var(--gray-500)" }}>

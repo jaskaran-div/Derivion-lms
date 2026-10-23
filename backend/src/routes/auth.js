@@ -34,7 +34,12 @@ router.post(
 
 router.post('/refresh', refreshToken);
 router.post('/logout', optionalAuth, logout);
-router.post('/forgot-password', body('email').isEmail(), validate, forgotPassword);
+// Self-service password reset emails are off: teachers and admins reset passwords.
+// Set ENABLE_FORGOT_PASSWORD=true to turn the email flow back on.
+router.post('/forgot-password', (req, res, next) => {
+  if (process.env.ENABLE_FORGOT_PASSWORD === 'true') return next();
+  return res.status(403).json({ success: false, message: 'Password resets are handled by your teacher or administrator.' });
+}, body('email').isEmail(), validate, forgotPassword);
 router.post('/reset-password', [body('token').isString().notEmpty(), body('password').isString().isLength({ min: 8 }).withMessage('Password must be at least 8 characters')], validate, resetPassword);
 router.post('/verify-email', body('token').isString().notEmpty(), validate, verifyEmail);
 router.post('/resend-verification', body('email').isEmail(), validate, resendVerification);

@@ -14,8 +14,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
         </Link>
         <nav className="public-nav" aria-label="Main">
           <Link href="/courses">Courses</Link>
-          <Link href="/login" className="btn btn-secondary btn-sm">Log in</Link>
-          <Link href="/register" className="btn btn-dark btn-sm">Sign up</Link>
+          <Link href="/login" className="btn btn-dark btn-sm">Log in</Link>
         </nav>
       </header>
       <main className="app-content" style={{ borderTopRightRadius: 28 }}>{children}</main>

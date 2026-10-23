@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -36,7 +35,6 @@ export default function LoginPage() {
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
@@ -182,16 +180,6 @@ export default function LoginPage() {
                 <label className="form-label required" style={{ marginBottom: 0 }}>
                   Password
                 </label>
-                <Link
-                  href="/forgot-password"
-                  style={{
-                    fontSize: 13,
-                    color: "var(--primary)",
-                    fontWeight: 500,
-                  }}
-                >
-                  Forgot password?
-                </Link>
               </div>
               <div className="input-group" style={{ position: "relative" }}>
                 <Lock size={16} className="input-group-icon" />
@@ -243,81 +231,9 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="auth-divider">
-            <span>Don&apos;t have an account?</span>
-          </div>
-
-          <Link href="/register">
-            <button className="btn btn-secondary w-full" style={{ height: 44, justifyContent: "center" }}>
-              Create an account
-            </button>
-          </Link>
-
-          {/* Demo credentials hint */}
-          <div
-            className="alert alert-info"
-            style={{ marginTop: 20, fontSize: 12 }}
-          >
-            <div style={{ width: "100%" }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Quick Fill Demo Accounts:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setValue("email", "admin@derivion.com");
-                    setValue("password", "Admin@123");
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    textAlign: "left",
-                    cursor: "pointer",
-                    color: "inherit",
-                    textDecoration: "underline",
-                  }}
-                >
-                  <strong>Admin:</strong> admin@derivion.com / Admin@123
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setValue("email", "teacher@derivion.com");
-                    setValue("password", "Teacher@123");
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    textAlign: "left",
-                    cursor: "pointer",
-                    color: "inherit",
-                    textDecoration: "underline",
-                  }}
-                >
-                  <strong>Teacher:</strong> teacher@derivion.com / Teacher@123
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setValue("email", "student@derivion.com");
-                    setValue("password", "Student@123");
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    textAlign: "left",
-                    cursor: "pointer",
-                    color: "inherit",
-                    textDecoration: "underline",
-                  }}
-                >
-                  <strong>Student:</strong> student@derivion.com / Student@123
-                </button>
-              </div>
-            </div>
-          </div>
+          <p style={{ marginTop: 20, fontSize: 13, color: "var(--gray-500)", textAlign: "center" }}>
+            Accounts are created by your school or administrator. Forgot your password? Ask your teacher or administrator to reset it.
+          </p>
         </div>
       </div>
     </div>

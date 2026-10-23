@@ -44,8 +44,8 @@ function ResetPasswordForm() {
       <div style={{ textAlign: "center" }}>
         <AuthIcon tone="danger">⚠️</AuthIcon>
         <h1 style={{ fontSize: 22, fontWeight: 600, marginBottom: 8 }}>Invalid reset link</h1>
-        <p style={{ color: "var(--gray-500)", fontSize: 14, marginBottom: 24 }}>This link is missing its reset code. Request a new one.</p>
-        <Link href="/forgot-password" className="btn btn-dark w-full">Request new link</Link>
+        <p style={{ color: "var(--gray-500)", fontSize: 14, marginBottom: 24 }}>This link is missing its reset code. Ask your teacher or administrator to reset your password.</p>
+        <Link href="/login" className="btn btn-dark w-full">Back to login</Link>
       </div>
     );
   }
@@ -73,7 +73,7 @@ function ResetPasswordForm() {
 
       {error && (
         <div className="alert alert-danger" style={{ marginBottom: 16, display: "block" }}>
-          {error} <Link href="/forgot-password" style={{ fontWeight: 600, textDecoration: "underline" }}>Request a new link</Link>
+          {error} Ask your teacher or administrator to reset your password.
         </div>
       )}
 

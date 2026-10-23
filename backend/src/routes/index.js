@@ -8,6 +8,7 @@ const {
 const {
   getDashboard: teacherDashboard,
   listStudents, createStudent, updateStudent, deleteStudent, enrollStudent, listCourses: teacherCourses,
+  resetStudentPassword,
 } = require('../controllers/teacherController');
 const {
   searchUsers,
@@ -137,6 +138,7 @@ router.post('/teacher/students', ...teacherAuth, createStudent);
 router.put('/teacher/students/:id', ...teacherAuth, updateStudent);
 router.delete('/teacher/students/:id', ...teacherAuth, deleteStudent);
 router.post('/teacher/students/:id/enroll', ...teacherAuth, enrollStudent);
+router.post('/teacher/students/:id/reset-password', ...teacherAuth, resetStudentPassword);
 router.get('/teacher/courses', ...teacherAuth, teacherCourses);
 
 // Bulk import

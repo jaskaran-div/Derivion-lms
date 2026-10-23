@@ -264,7 +264,35 @@ const listCourses = async (req, res) => {
   }
 };
 
+// POST /api/teacher/students/:id/reset-password — new one-time password for one of the teacher's own students
+const resetStudentPassword = async (req, res) => {
+  try {
+    const student = await ensureOwnStudent(req.user.id, req.params.id);
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
+
+    const plainPassword = generatePassword();
+    await prisma.user.update({
+      where: { id: student.id },
+      // Saved hashed; existing sessions are signed out so only the new password works
+      data: { password: await bcrypt.hash(plainPassword, 12), passwordChangedAt: new Date() },
+    });
+
+    res.json({
+      success: true,
+      message: 'Password reset. Share it with the student now — it will not be shown again.',
+      data: {
+        credentials: { studentId: student.username || student.email, password: plainPassword },
+        student: { id: student.id, firstName: student.firstName, lastName: student.lastName },
+      },
+    });
+  } catch (error) {
+    console.error('Reset student password error:', error);
+    res.status(500).json({ success: false, message: 'Failed to reset password.' });
+  }
+};
+
 module.exports = {
+  resetStudentPassword,
   getDashboard,
   listStudents,
   createStudent,
