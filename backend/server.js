@@ -23,6 +23,9 @@ const isProd = process.env.NODE_ENV === 'production';
 // ==================== CORS ====================
 // Only our own frontends. Set CLIENT_URL to a comma-separated list for extra origins (e.g. a preview URL).
 const allowedOrigins = new Set([
+  // Deployed frontends (Vercel production and the Render static site)
+  'https://derivion-lms.vercel.app',
+  'https://derivion-lms-1.onrender.com',
   ...(process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map((s) => s.trim()).filter(Boolean) : []),
   ...(isProd ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000']),
 ]);
