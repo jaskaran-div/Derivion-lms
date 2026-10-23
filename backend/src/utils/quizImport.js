@@ -189,4 +189,4 @@ const parseQuestions = (text) => {
   return { questions, errors };
 };
 
-module.exports = { extractText, parseQuestions };
+module.exports = { extractText, parseQuestions, docxHtmlToText };

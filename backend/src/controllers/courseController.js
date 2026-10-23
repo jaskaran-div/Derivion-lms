@@ -1,83 +1,70 @@
 const prisma = require('../config/database');
+const cache = require('../config/cache');
 const { uploadToS3, generateS3Key, getCloudFrontUrl, deleteFromS3, isAwsConfigured, createMultipartUpload, getUploadPartUrl, completeMultipartUpload, abortMultipartUpload } = require('../config/aws');
 
-// GET /api/courses - Public listing with search & filter
+const SORTABLE = ['createdAt', 'title', 'price', 'totalStudents', 'updatedAt'];
+const CATALOG_TTL = 120;
+
+// GET /api/courses - Public listing with search & filter (cached per query)
 const getCourses = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 12,
-      search,
-      categoryId,
-      level,
-      minPrice,
-      maxPrice,
-      isFree,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
-    } = req.query;
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 12));
+    const { search, categoryId, level, minPrice, maxPrice, isFree } = req.query;
+    const sortBy = SORTABLE.includes(req.query.sortBy) ? req.query.sortBy : 'createdAt';
+    const sortOrder = req.query.sortOrder === 'asc' ? 'asc' : 'desc';
+    const term = typeof search === 'string' ? search.trim().slice(0, 100) : '';
 
     const where = {
       status: 'PUBLISHED',
-      ...(search && {
+      ...(term && {
         OR: [
-          { title: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
-          { tags: { has: search } },
+          { title: { contains: term, mode: 'insensitive' } },
+          { description: { contains: term, mode: 'insensitive' } },
+          { tags: { has: term } },
         ],
       }),
-      ...(categoryId && { categoryId }),
-      ...(level && { level }),
+      ...(typeof categoryId === 'string' && categoryId && { categoryId }),
+      ...(typeof level === 'string' && level && { level }),
       ...(isFree === 'true' && { isFree: true }),
       ...(minPrice || maxPrice
         ? {
             price: {
-              ...(minPrice && { gte: parseFloat(minPrice) }),
-              ...(maxPrice && { lte: parseFloat(maxPrice) }),
+              ...(minPrice && !Number.isNaN(parseFloat(minPrice)) && { gte: parseFloat(minPrice) }),
+              ...(maxPrice && !Number.isNaN(parseFloat(maxPrice)) && { lte: parseFloat(maxPrice) }),
             },
           }
         : {}),
     };
 
-    const [courses, total] = await Promise.all([
-      prisma.course.findMany({
-        where,
-        skip,
-        take: parseInt(limit),
-        orderBy: { [sortBy]: sortOrder },
-        include: {
-          category: { select: { id: true, name: true, slug: true } },
-          _count: { select: { enrollments: true, sections: true } },
-        },
-      }),
-      prisma.course.count({ where }),
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        courses,
-        pagination: {
-          total,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(total / parseInt(limit)),
-        },
-      },
+    const key = `courses:list:${JSON.stringify({ page, limit, term, categoryId, level, minPrice, maxPrice, isFree, sortBy, sortOrder })}`;
+    const data = await cache.wrap(key, CATALOG_TTL, async () => {
+      const [courses, total] = await Promise.all([
+        prisma.course.findMany({
+          where,
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: { [sortBy]: sortOrder },
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+            _count: { select: { enrollments: true, sections: true } },
+          },
+        }),
+        prisma.course.count({ where }),
+      ]);
+      return { courses, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } };
     });
+
+    res.json({ success: true, data });
   } catch (error) {
     console.error('Get courses error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch courses.' });
   }
 };
 
-// GET /api/courses/:slug - Public course detail
-const getCourseBySlug = async (req, res) => {
-  try {
-    const { slug } = req.params;
-
+// Published course structure shared by every visitor (cached); learner-specific state is added per request
+const loadPublicCourse = (slug) =>
+  cache.wrap(`courses:detail:${slug}`, CATALOG_TTL, async () => {
     const course = await prisma.course.findUnique({
       where: { slug },
       include: {
@@ -87,78 +74,61 @@ const getCourseBySlug = async (req, res) => {
           orderBy: { order: 'asc' },
           include: {
             contents: {
+              where: { isPublished: true },
               orderBy: { order: 'asc' },
-              select: {
-                id: true,
-                title: true,
-                type: true,
-                duration: true,
-                isFree: true,
-                order: true,
-                isPublished: true,
-                assessmentId: true,
-              },
+              select: { id: true, title: true, type: true, duration: true, isFree: true, order: true, isPublished: true, assessmentId: true },
             },
           },
         },
         _count: { select: { enrollments: true } },
-        assessments: {
-          where: { isPublished: true },
-          select: { id: true, title: true, type: true, timeLimit: true },
-        },
       },
     });
+    if (!course || course.status !== 'PUBLISHED') return null;
+    const allContents = course.sections.flatMap((sec) => sec.contents);
+    return {
+      ...course,
+      totalLessons: allContents.length || course.totalLessons,
+      totalDuration: allContents.reduce((acc, c) => acc + (c.duration || 0), 0) || course.totalDuration,
+    };
+  });
 
-    if (!course || course.status !== 'PUBLISHED') {
+// GET /api/courses/:slug - Public course detail
+const getCourseBySlug = async (req, res) => {
+  try {
+    const course = await loadPublicCourse(req.params.slug);
+    if (!course) {
       return res.status(404).json({ success: false, message: 'Course not found.' });
     }
 
-    // Check if user is enrolled (Admin always has access)
     let isEnrolled = false;
-    let completedContentIds = [];
+    let isBookmarked = false;
+    let completedContentIds = new Set();
     if (req.user) {
-      if (req.user.role === 'ADMIN') {
-        isEnrolled = true;
-      } else {
-        const enrollment = await prisma.enrollment.findUnique({
-          where: { userId_courseId: { userId: req.user.id, courseId: course.id } },
-        });
-        isEnrolled = !!enrollment;
-      }
-
-      // Fetch user's completed contents
-      const progresses = await prisma.contentProgress.findMany({
-        where: {
-          userId: req.user.id,
-          content: { section: { courseId: course.id } },
-          isCompleted: true,
-        },
-        select: { contentId: true },
-      });
-      completedContentIds = progresses.map((p) => p.contentId);
+      const [enrollment, bookmark, progresses] = await Promise.all([
+        req.user.role === 'ADMIN'
+          ? Promise.resolve({ status: 'ACTIVE' })
+          : prisma.enrollment.findUnique({ where: { userId_courseId: { userId: req.user.id, courseId: course.id } } }),
+        prisma.courseBookmark.findUnique({ where: { userId_courseId: { userId: req.user.id, courseId: course.id } } }),
+        prisma.contentProgress.findMany({
+          where: { userId: req.user.id, isCompleted: true, content: { section: { courseId: course.id } } },
+          select: { contentId: true },
+        }),
+      ]);
+      isEnrolled = Boolean(enrollment) && ['ACTIVE', 'COMPLETED'].includes(enrollment.status);
+      isBookmarked = Boolean(bookmark);
+      completedContentIds = new Set(progresses.map((p) => p.contentId));
     }
-
-    // Dynamic lesson counts & durations
-    const allContents = (course.sections || []).flatMap((s) => s.contents || []);
-    const dynamicLessons = allContents.length;
-    const dynamicDuration = allContents.reduce((acc, c) => acc + (c.duration || 0), 0);
-
-    const sectionsWithProgress = (course.sections || []).map((section) => ({
-      ...section,
-      contents: (section.contents || []).map((c) => ({
-        ...c,
-        isCompleted: completedContentIds.includes(c.id),
-      })),
-    }));
 
     res.json({
       success: true,
       data: {
         ...course,
-        sections: sectionsWithProgress,
-        totalLessons: dynamicLessons || course.totalLessons,
-        totalDuration: dynamicDuration || course.totalDuration,
+        sections: course.sections.map((section) => ({
+          ...section,
+          contents: section.contents.map((c) => ({ ...c, isCompleted: completedContentIds.has(c.id) })),
+        })),
         isEnrolled,
+        isBookmarked,
       },
     });
   } catch (error) {

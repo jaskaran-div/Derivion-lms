@@ -9,6 +9,8 @@ const prisma = {
   enrollment: {},
   user: {},
   payment: {},
+  // Platform settings (enrollment limits) — none stored, so defaults apply
+  siteSettings: { findMany: async () => [] },
 };
 
 const installMockModule = (modulePath, exportsValue) => {
@@ -97,6 +99,7 @@ describe('course EMI eligibility', () => {
     };
     prisma.course.findUnique = async () => storedCourse;
     prisma.enrollment.findUnique = async () => null;
+    prisma.enrollment.count = async () => 0;
     prisma.enrollment.create = async ({ data }) => data;
     prisma.user.findUnique = async () => ({
       email: 'student@example.test',

@@ -19,6 +19,16 @@ services:
         value: https://derivion-lms.onrender.com
       - key: DATABASE_URL
         sync: false
+      # Session-mode URL (port 5432) used by prisma migrate; DATABASE_URL should be the pooler (6543, ?pgbouncer=true)
+      - key: DIRECT_URL
+        sync: false
+      # Optional: Redis for cache and shared rate limits
+      - key: REDIS_URL
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET

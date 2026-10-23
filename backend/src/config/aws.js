@@ -1,4 +1,16 @@
-const AWS = require('aws-sdk');
+const {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  PutBucketCorsCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+} = require('@aws-sdk/client-s3');
+const { Upload } = require('@aws-sdk/lib-storage');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
@@ -23,16 +35,22 @@ const isAwsConfigured = () => {
   );
 };
 
-// Configure AWS if credentials are valid
-if (isAwsConfigured()) {
-  AWS.config.update({
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    region: process.env.AWS_REGION || 'ap-south-1',
-  });
-}
+const REGION = process.env.AWS_REGION || 'ap-south-1';
+const BUCKET = () => process.env.AWS_S3_BUCKET;
 
-const s3 = new AWS.S3();
+const s3 = new S3Client({
+  region: REGION,
+  // Browsers upload parts through presigned URLs and cannot add SDK checksum headers
+  requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
+  ...(isAwsConfigured() && {
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    },
+  }),
+});
+
 const CLOUDFRONT_DOMAIN = process.env.CLOUDFRONT_DOMAIN;
 
 /**
@@ -81,7 +99,7 @@ const getCloudFrontUrl = (s3Key) => {
     return `${getBackendBaseUrl()}/uploads/${rel}`;
   }
   if (!CLOUDFRONT_DOMAIN || CLOUDFRONT_DOMAIN.includes('your-cloudfront-domain')) {
-    return `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${s3Key}`;
+    return `https://${BUCKET()}.s3.${REGION}.amazonaws.com/${s3Key}`;
   }
   return `https://${CLOUDFRONT_DOMAIN}/${s3Key}`;
 };
@@ -96,21 +114,17 @@ const uploadToS3 = async (buffer, key, contentType) => {
   }
 
   try {
-    const params = {
-      Bucket: process.env.AWS_S3_BUCKET,
-      Key: key,
-      Body: buffer,
-      ContentType: contentType,
-    };
-
-    const result = await s3.upload(params, {
+    const upload = new Upload({
+      client: s3,
+      params: { Bucket: BUCKET(), Key: key, Body: buffer, ContentType: contentType },
       partSize: 8 * 1024 * 1024,
       queueSize: 4,
-    }).promise();
+    });
+    const result = await upload.done();
     return {
       s3Key: key,
       cloudFrontUrl: getCloudFrontUrl(key),
-      s3Url: result.Location,
+      s3Url: result.Location || getCloudFrontUrl(key),
     };
   } catch (s3Error) {
     console.warn(`[Storage] AWS S3 upload failed (${s3Error.message}). Falling back to local storage.`);
@@ -120,14 +134,18 @@ const uploadToS3 = async (buffer, key, contentType) => {
 
 const ensureBucketCors = async () => {
   if (!isAwsConfigured()) return;
-  const origin = process.env.CLIENT_URL || 'http://localhost:3000';
+  const origins = [
+    ...(process.env.CLIENT_URL || 'http://localhost:3000').split(',').map((s) => s.trim()),
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ];
   try {
-    await s3.putBucketCors({
-      Bucket: process.env.AWS_S3_BUCKET,
+    await s3.send(new PutBucketCorsCommand({
+      Bucket: BUCKET(),
       CORSConfiguration: {
         CORSRules: [
           {
-            AllowedOrigins: [origin, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+            AllowedOrigins: [...new Set(origins)],
             AllowedMethods: ['GET', 'PUT', 'POST', 'HEAD'],
             AllowedHeaders: ['*'],
             ExposeHeaders: ['ETag', 'x-amz-request-id', 'x-amz-id-2'],
@@ -135,7 +153,7 @@ const ensureBucketCors = async () => {
           },
         ],
       },
-    }).promise();
+    }));
     console.log('[Storage] S3 bucket CORS configured for browser uploads.');
   } catch (err) {
     console.warn(`[Storage] Could not set S3 CORS (${err.message}). Direct browser uploads may fail until CORS is set on the bucket.`);
@@ -143,47 +161,40 @@ const ensureBucketCors = async () => {
 };
 
 const createMultipartUpload = async (key, contentType) => {
-  const result = await s3.createMultipartUpload({
-    Bucket: process.env.AWS_S3_BUCKET,
+  const result = await s3.send(new CreateMultipartUploadCommand({
+    Bucket: BUCKET(),
     Key: key,
     ContentType: contentType,
-  }).promise();
+  }));
   return result.UploadId;
 };
 
-const getUploadPartUrl = async (key, uploadId, partNumber) => {
-  return s3.getSignedUrlPromise('uploadPart', {
-    Bucket: process.env.AWS_S3_BUCKET,
-    Key: key,
-    UploadId: uploadId,
-    PartNumber: partNumber,
-    Expires: 3600,
-  });
-};
+const getUploadPartUrl = async (key, uploadId, partNumber) =>
+  getSignedUrl(
+    s3,
+    new UploadPartCommand({ Bucket: BUCKET(), Key: key, UploadId: uploadId, PartNumber: partNumber }),
+    { expiresIn: 3600 }
+  );
 
 const completeMultipartUpload = async (key, uploadId, parts) => {
-  const result = await s3.completeMultipartUpload({
-    Bucket: process.env.AWS_S3_BUCKET,
+  const result = await s3.send(new CompleteMultipartUploadCommand({
+    Bucket: BUCKET(),
     Key: key,
     UploadId: uploadId,
     MultipartUpload: {
-      Parts: parts.sort((a, b) => a.PartNumber - b.PartNumber),
+      Parts: [...parts].sort((a, b) => a.PartNumber - b.PartNumber),
     },
-  }).promise();
+  }));
   return {
     s3Key: key,
     cloudFrontUrl: getCloudFrontUrl(key),
-    s3Url: result.Location,
+    s3Url: result.Location || getCloudFrontUrl(key),
   };
 };
 
 const abortMultipartUpload = async (key, uploadId) => {
   try {
-    await s3.abortMultipartUpload({
-      Bucket: process.env.AWS_S3_BUCKET,
-      Key: key,
-      UploadId: uploadId,
-    }).promise();
+    await s3.send(new AbortMultipartUploadCommand({ Bucket: BUCKET(), Key: key, UploadId: uploadId }));
   } catch (err) {
     console.warn(`[Storage] Abort multipart failed: ${err.message}`);
   }
@@ -208,11 +219,7 @@ const deleteFromS3 = async (key) => {
   if (!isAwsConfigured()) return;
 
   try {
-    const params = {
-      Bucket: process.env.AWS_S3_BUCKET,
-      Key: key,
-    };
-    return await s3.deleteObject(params).promise();
+    return await s3.send(new DeleteObjectCommand({ Bucket: BUCKET(), Key: key }));
   } catch (err) {
     console.error('Delete from S3 error:', err.message);
   }
@@ -231,12 +238,11 @@ const getPresignedDownloadUrl = async (key, expiresIn = 3600) => {
     return getCloudFrontUrl(key);
   }
 
-  const params = {
-    Bucket: process.env.AWS_S3_BUCKET,
-    Key: key,
-    Expires: expiresIn,
-  };
-  return s3.getSignedUrlPromise('getObject', params);
+  return getSignedUrl(
+    s3,
+    new GetObjectCommand({ Bucket: BUCKET(), Key: key, ResponseContentDisposition: 'inline' }),
+    { expiresIn }
+  );
 };
 
 /**
@@ -246,13 +252,11 @@ const getPresignedUploadUrl = async (key, contentType, expiresIn = 3600) => {
   if (!isAwsConfigured()) {
     throw new Error('Direct S3 upload is not configured. Use the standard upload endpoint.');
   }
-  const params = {
-    Bucket: process.env.AWS_S3_BUCKET,
-    Key: key,
-    ContentType: contentType,
-    Expires: expiresIn,
-  };
-  return s3.getSignedUrlPromise('putObject', params);
+  return getSignedUrl(
+    s3,
+    new PutObjectCommand({ Bucket: BUCKET(), Key: key, ContentType: contentType }),
+    { expiresIn }
+  );
 };
 
 module.exports = {

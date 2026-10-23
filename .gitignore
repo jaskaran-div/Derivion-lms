@@ -17,6 +17,9 @@
 # Local uploads are ephemeral on Render; use S3 for persistent storage
 /backend/uploads/
 
+# Database dumps (may contain personal data)
+/backend/backups/
+
 # Logs and local keys
 **/npm-debug.log*
 **/yarn-debug.log*

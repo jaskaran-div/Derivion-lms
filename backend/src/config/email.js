@@ -10,8 +10,11 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// User-supplied values (names, course titles) must not be interpreted as HTML
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]);
+
 const emailTemplates = {
-  welcome: (firstName) => ({
+  welcome: (rawFirstName, firstName = esc(rawFirstName)) => ({
     subject: `Welcome to ${process.env.APP_NAME}! 🎓`,
     html: `
       <!DOCTYPE html>
@@ -21,11 +24,11 @@ const emailTemplates = {
         <style>
           body { font-family: 'Inter', Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
           .container { max-width: 600px; margin: 40px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
-          .header { background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 40px; text-align: center; }
+          .header { background: linear-gradient(135deg, #1d4ed8, #6d3df5); padding: 40px; text-align: center; }
           .header h1 { color: #fff; margin: 0; font-size: 28px; font-weight: 700; }
           .body { padding: 40px; }
           .body p { color: #374151; line-height: 1.7; font-size: 16px; }
-          .btn { display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0; }
+          .btn { display: inline-block; background: linear-gradient(135deg, #1d4ed8, #6d3df5); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0; }
           .footer { background: #f8fafc; padding: 24px 40px; text-align: center; color: #6b7280; font-size: 14px; }
         </style>
       </head>
@@ -51,7 +54,7 @@ const emailTemplates = {
     `,
   }),
 
-  enrollmentConfirmation: (firstName, courseName) => ({
+  enrollmentConfirmation: (rawFirstName, rawCourseName, firstName = esc(rawFirstName), courseName = esc(rawCourseName)) => ({
     subject: `🎓 Enrolled in "${courseName}" - ${process.env.APP_NAME}`,
     html: `
       <!DOCTYPE html>
@@ -65,7 +68,7 @@ const emailTemplates = {
           .header h1 { color: #fff; margin: 0; font-size: 24px; font-weight: 700; }
           .body { padding: 40px; }
           .body p { color: #374151; line-height: 1.7; font-size: 16px; }
-          .btn { display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0; }
+          .btn { display: inline-block; background: linear-gradient(135deg, #1d4ed8, #6d3df5); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0; }
           .course-box { background: #f0fdf4; border-left: 4px solid #10b981; padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 20px 0; }
           .footer { background: #f8fafc; padding: 24px 40px; text-align: center; color: #6b7280; font-size: 14px; }
         </style>
@@ -93,7 +96,23 @@ const emailTemplates = {
     `,
   }),
 
-  passwordReset: (firstName, resetUrl) => ({
+  emailVerification: (rawFirstName, verifyUrl, firstName = esc(rawFirstName)) => ({
+    subject: `Verify your email for ${process.env.APP_NAME}`,
+    html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+      <body style="font-family: Arial, sans-serif; background: #f4f5f8; margin: 0; padding: 0;">
+        <div style="max-width: 560px; margin: 40px auto; background: #fff; border-radius: 16px; overflow: hidden;">
+          <div style="background: #1d4ed8; padding: 32px; text-align: center; color: #fff; font-size: 22px; font-weight: 700;">${esc(process.env.APP_NAME)}</div>
+          <div style="padding: 32px; color: #343a46; line-height: 1.7; font-size: 15px;">
+            <p>Hi ${firstName},</p>
+            <p>Please confirm your email address to activate your account. This link expires in 24 hours.</p>
+            <p style="text-align: center;"><a href="${verifyUrl}" style="display: inline-block; background: #0f1115; color: #fff; padding: 14px 32px; border-radius: 999px; text-decoration: none; font-weight: 600;">Verify Email</a></p>
+            <p style="color: #6b7280; font-size: 13px;">If you did not create an account, you can ignore this email.</p>
+          </div>
+        </div>
+      </body></html>`,
+  }),
+
+  passwordReset: (rawFirstName, resetUrl, firstName = esc(rawFirstName)) => ({
     subject: `🔒 Password Reset - ${process.env.APP_NAME}`,
     html: `
       <!DOCTYPE html>

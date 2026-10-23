@@ -611,7 +611,8 @@ const adminResetStudentPassword = async (req, res) => {
 
     await prisma.user.update({
       where: { id: thread.user.id },
-      data: { password: hashedPassword },
+      // One-time password: old sessions end and the student must choose a new password at next login
+      data: { password: hashedPassword, mustChangePassword: true, passwordChangedAt: new Date() },
     });
 
     const note = `Admin reset the student password. New Student ID: ${thread.user.username || thread.user.email}. Share this password once with the teacher/guardian.`;

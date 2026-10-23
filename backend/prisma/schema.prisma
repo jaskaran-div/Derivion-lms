@@ -8,6 +8,8 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Session-mode connection used by prisma migrate (the pooled DATABASE_URL cannot run migrations)
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -292,6 +294,8 @@ model User {
   emailVerifyToken     String?
   resetPasswordToken   String?
   resetPasswordExpiry  DateTime?
+  emailVerifyExpiry    DateTime?
+  passwordChangedAt    DateTime?    // tokens issued before this are rejected
   lastLogin            DateTime?
   guardianEmail        String?
   guardianPhone        String?
@@ -322,6 +326,8 @@ model User {
   auditLogs            AuditLog[]   @relation("AuditLogs")
   revokedTokens        RevokedToken[]
   mentorSessions       MentorSession[] @relation("MentorSessionCreator")
+  bookmarks            CourseBookmark[]
+  lessonNotes          LessonNote[]
 
   @@index([email])
   @@index([username])
@@ -445,6 +451,7 @@ model Course {
   schoolAssignments SchoolCourseAssignment[]
   classAssignments  ClassCourseAssignment[]
   mentorSessions    MentorSession[]
+  bookmarks         CourseBookmark[]
 
   @@index([status, categoryId])
   @@index([slug])
@@ -490,6 +497,7 @@ model Content {
   section       Section     @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   assessment    Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
   progress      ContentProgress[]
+  notes         LessonNote[]
 
   @@index([sectionId])
   @@index([assessmentId])
@@ -530,6 +538,8 @@ model Payment {
   razorpayPaymentId String?
   razorpaySignature String?
   gatewayResponse  Json?
+  refundId         String?
+  refundedAt       DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
@@ -713,6 +723,36 @@ model Notification {
 
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+// ==================== BOOKMARKS & NOTES ====================
+
+model CourseBookmark {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@map("course_bookmarks")
+}
+
+model LessonNote {
+  id        String   @id @default(uuid())
+  userId    String
+  contentId String
+  timestamp Int      @default(0) // seconds into the lesson
+  text      String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@index([userId, contentId])
+  @@map("lesson_notes")
 }
 
 // ==================== MENTOR SESSIONS ====================

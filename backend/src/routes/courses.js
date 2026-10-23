@@ -16,15 +16,42 @@ const {
 const {
   listQuizzes, getQuizAdmin, createQuiz, updateQuiz, deleteQuiz,
   addQuestion, updateQuestion, deleteQuestion, listQuizAttempts,
-  previewImport, bulkAddQuestions,
+  previewImport, bulkAddQuestions, getQuizAnalytics,
   getAssessment, startAttempt, saveProgress, submitAttempt,
 } = require('../controllers/assessmentController');
 const prisma = require('../config/database');
+const { renderCertificatePdf } = require('../services/certificatePdf');
+const { getPublicSettings } = require('../services/settings');
+const cache = require('../config/cache');
 
 // ==================== PUBLIC ROUTES ====================
-router.get('/', optionalAuth, getCourses);
-router.get('/:slug', optionalAuth, getCourseBySlug);
-router.post('/content/:id/duration', syncContentDuration);
+// Any successful admin write to courses, sections, lessons or categories clears the public catalog cache
+router.use((req, res, next) => {
+  if (req.method !== 'GET' && (req.path.startsWith('/admin') || req.path.startsWith('/categories'))) {
+    res.on('finish', () => {
+      if (res.statusCode < 400) {
+        cache.delPrefix('courses:');
+        cache.del('categories:all');
+      }
+    });
+  }
+  next();
+});
+
+// "Allow guest browsing" off → the catalog requires a login
+const guestBrowsingGate = async (req, res, next) => {
+  if (req.user) return next();
+  try {
+    const { allowGuestBrowsing } = await getPublicSettings();
+    if (!allowGuestBrowsing) return res.status(401).json({ success: false, code: 'LOGIN_REQUIRED', message: 'Please log in to browse courses.' });
+  } catch { /* default to open */ }
+  next();
+};
+
+router.get('/', optionalAuth, guestBrowsingGate, getCourses);
+router.get('/:slug', optionalAuth, guestBrowsingGate, getCourseBySlug);
+// Only staff may change lesson durations (players report length while previewing)
+router.post('/content/:id/duration', authenticate, authorize('ADMIN', 'TEACHER'), syncContentDuration);
 
 // ==================== ADMIN ROUTES ====================
 const adminAuth = [authenticate, authorize('ADMIN')];
@@ -37,6 +64,7 @@ router.get('/admin/quizzes/:id', ...adminAuth, getQuizAdmin);
 router.put('/admin/quizzes/:id', ...adminAuth, updateQuiz);
 router.delete('/admin/quizzes/:id', ...adminAuth, deleteQuiz);
 router.get('/admin/quizzes/:id/attempts', ...adminAuth, listQuizAttempts);
+router.get('/admin/quizzes/:id/analytics', ...adminAuth, getQuizAnalytics);
 router.post('/admin/quizzes/:id/questions', ...adminAuth, addQuestion);
 router.post('/admin/quizzes/:id/questions/bulk', ...adminAuth, bulkAddQuestions);
 router.post('/admin/quizzes/:id/import/preview', ...adminAuth, (req, res, next) => {
@@ -79,8 +107,13 @@ router.post('/admin/contents/:id/multipart/abort', ...adminAuth, abortContentMul
 
 // Categories
 router.get('/categories/all', async (req, res) => {
-  const categories = await prisma.category.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } });
-  res.json({ success: true, data: categories });
+  try {
+    const categories = await cache.wrap('categories:all', 600, () =>
+      prisma.category.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } }));
+    res.json({ success: true, data: categories });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to fetch categories.' });
+  }
 });
 router.post('/categories', ...adminAuth, async (req, res) => {
   try {
@@ -122,6 +155,26 @@ router.put('/student/attempts/:attemptId', ...studentAuth, saveProgress);
 router.post('/student/attempts/:attemptId/submit', ...studentAuth, submitAttempt);
 
 // ==================== PUBLIC CERTIFICATE VERIFICATION ====================
+// Certificate PDF, rendered on demand. Uses the unguessable public certificate ID.
+router.get('/verify/:certificateId/pdf', async (req, res) => {
+  try {
+    const cert = await prisma.certificate.findUnique({
+      where: { certificateId: req.params.certificateId },
+      include: { user: { select: { firstName: true, lastName: true } }, course: { select: { title: true } } },
+    });
+    if (!cert) return res.status(404).json({ success: false, message: 'Certificate not found.' });
+    const { siteName } = await getPublicSettings();
+    const client = (process.env.CLIENT_URL || 'http://localhost:3000').split(',')[0].trim();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename="certificate-${cert.certificateNo}.pdf"`);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    renderCertificatePdf(cert, res, { siteName, verifyUrl: `${client}/verify/${cert.certificateId}` });
+  } catch (error) {
+    console.error('Certificate PDF error:', error);
+    if (!res.headersSent) res.status(500).json({ success: false, message: 'Failed to generate certificate.' });
+  }
+});
+
 router.get('/verify/:certificateId', async (req, res) => {
   try {
     const cert = await prisma.certificate.findFirst({
@@ -145,6 +198,7 @@ router.get('/verify/:certificateId', async (req, res) => {
       success: true,
       data: {
         certificateNo: cert.certificateNo,
+        certificateId: cert.certificateId,
         recipientName: `${cert.user.firstName} ${cert.user.lastName}`,
         courseTitle: cert.course.title,
         courseLevel: cert.course.level,

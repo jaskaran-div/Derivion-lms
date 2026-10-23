@@ -23,7 +23,11 @@ const {
   adminCloseThread,
   adminResetStudentPassword,
 } = require('../controllers/chatController');
-const { createOrder, verifyPayment, webhook, getPaymentHistory, adminGetPayments } = require('../controllers/paymentController');
+const { createOrder, verifyPayment, webhook, getPaymentHistory, adminGetPayments, adminRefundPayment } = require('../controllers/paymentController');
+const { getSettings, updateSettings, getPublicSettings } = require('../services/settings');
+const { ACCESS_STATUSES } = require('../services/progress');
+const cache = require('../config/cache');
+const { cacheResponse } = require('../middleware/cacheResponse');
 const {
   listSchools, getSchool, createSchool, updateSchool, deleteSchool,
   listAcademicYears, createAcademicYear,
@@ -52,7 +56,7 @@ const staffAuth = [authenticate, authorize('ADMIN', 'TEACHER')];
 const studentAuth = [authenticate];
 
 // ==================== ADMIN ====================
-router.get('/admin/dashboard', ...adminAuth, getDashboardStats);
+router.get('/admin/dashboard', ...adminAuth, cacheResponse(() => 'admin:dashboard', 30), getDashboardStats);
 router.get('/admin/users', ...adminAuth, getUsers);
 router.get('/admin/users/:id', ...adminAuth, getUserById);
 router.post('/admin/users', ...adminAuth, createUser);
@@ -60,6 +64,32 @@ router.put('/admin/users/:id', ...adminAuth, updateUser);
 router.delete('/admin/users/:id', ...adminAuth, deleteUser);
 router.post('/admin/users/:id/enroll', ...adminAuth, enrollUser);
 router.get('/admin/payments', ...adminAuth, adminGetPayments);
+router.post('/admin/payments/:id/refund', ...adminAuth, adminRefundPayment);
+
+// Platform settings
+router.get('/admin/settings', ...adminAuth, async (req, res) => {
+  try {
+    res.json({ success: true, data: await getSettings() });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to load settings.' });
+  }
+});
+router.put('/admin/settings', ...adminAuth, async (req, res) => {
+  try {
+    const data = await updateSettings(req.body || {});
+    res.json({ success: true, message: 'Settings saved.', data });
+  } catch (err) {
+    console.error('updateSettings error:', err);
+    res.status(500).json({ success: false, message: 'Failed to save settings.' });
+  }
+});
+router.get('/settings/public', async (req, res) => {
+  try {
+    res.json({ success: true, data: await getPublicSettings() });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to load settings.' });
+  }
+});
 
 // School management
 router.get('/admin/schools', ...adminAuth, listSchools);
@@ -85,7 +115,7 @@ router.post('/admin/schools/:id/courses', ...adminAuth, assignCourseToSchool);
 router.post('/admin/classes/:id/courses', ...adminAuth, assignCourseToClass);
 
 // Analytics
-router.get('/admin/analytics/overview', ...adminAuth, getOverview);
+router.get('/admin/analytics/overview', ...adminAuth, cacheResponse((req) => `admin:analytics:${JSON.stringify(req.query)}`, 60), getOverview);
 router.get('/admin/analytics/courses', ...adminAuth, getCourseAnalytics);
 router.get('/admin/analytics/at-risk', ...adminAuth, getAtRiskStudents);
 router.get('/admin/analytics/class-report/:classId', ...adminAuth, getClassReport);
@@ -291,7 +321,7 @@ router.delete('/notifications/:id', ...studentAuth, async (req, res) => {
   try {
     const notif = await prisma.notification.findUnique({ where: { id: req.params.id } });
     if (!notif) return res.status(404).json({ success: false, message: 'Not found' });
-    if (notif.userId !== req.user.id && req.user.role !== 'ADMIN' && req.user.role !== 'TEACHER') {
+    if (notif.userId !== req.user.id && req.user.role !== 'ADMIN') {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
     await prisma.notification.delete({ where: { id: req.params.id } });
@@ -391,18 +421,31 @@ router.post('/profile/avatar', ...studentAuth, imageUpload.single('avatar'), asy
   }
 });
 
-// Forum
+// Forum — only staff and learners enrolled in the course can read or post
+const canUseCourseForum = async (user, courseId) => {
+  if (user.role === 'ADMIN' || user.role === 'TEACHER') return true;
+  const enrollment = await prisma.enrollment.findFirst({
+    where: { userId: user.id, courseId, status: { in: ACCESS_STATUSES } },
+    select: { id: true },
+  });
+  return Boolean(enrollment);
+};
+const cleanText = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
 router.get('/courses/:courseId/forum', ...studentAuth, async (req, res) => {
   try {
     const { courseId } = req.params;
-    const { page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    if (!(await canUseCourseForum(req.user, courseId))) {
+      return res.status(403).json({ success: false, message: 'Enroll in this course to view its forum.' });
+    }
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
 
     const [posts, total] = await Promise.all([
       prisma.forumPost.findMany({
         where: { courseId },
-        skip,
-        take: parseInt(limit),
+        skip: (page - 1) * limit,
+        take: limit,
         orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
         include: {
           user: { select: { firstName: true, lastName: true, avatar: true } },
@@ -412,7 +455,7 @@ router.get('/courses/:courseId/forum', ...studentAuth, async (req, res) => {
       prisma.forumPost.count({ where: { courseId } }),
     ]);
 
-    res.json({ success: true, data: { posts, pagination: { total, page: parseInt(page) } } });
+    res.json({ success: true, data: { posts, pagination: { total, page } } });
   } catch {
     res.status(500).json({ success: false, message: 'Failed to fetch forum.' });
   }
@@ -420,7 +463,12 @@ router.get('/courses/:courseId/forum', ...studentAuth, async (req, res) => {
 
 router.post('/courses/:courseId/forum', ...studentAuth, async (req, res) => {
   try {
-    const { title, content } = req.body;
+    const title = cleanText(req.body.title, 200);
+    const content = cleanText(req.body.content, 10000);
+    if (!title || !content) return res.status(400).json({ success: false, message: 'Title and content are required.' });
+    if (!(await canUseCourseForum(req.user, req.params.courseId))) {
+      return res.status(403).json({ success: false, message: 'Enroll in this course to post in its forum.' });
+    }
     const post = await prisma.forumPost.create({
       data: { title, content, userId: req.user.id, courseId: req.params.courseId },
       include: { user: { select: { firstName: true, lastName: true, avatar: true } } },
@@ -443,7 +491,9 @@ router.get('/forum/posts/:postId', ...studentAuth, async (req, res) => {
         },
       },
     });
-    if (!post) return res.status(404).json({ success: false, message: 'Post not found.' });
+    if (!post || !(await canUseCourseForum(req.user, post.courseId))) {
+      return res.status(404).json({ success: false, message: 'Post not found.' });
+    }
     await prisma.forumPost.update({ where: { id: post.id }, data: { views: { increment: 1 } } });
     res.json({ success: true, data: post });
   } catch {
@@ -453,13 +503,108 @@ router.get('/forum/posts/:postId', ...studentAuth, async (req, res) => {
 
 router.post('/forum/posts/:postId/reply', ...studentAuth, async (req, res) => {
   try {
+    const content = cleanText(req.body.content, 10000);
+    if (!content) return res.status(400).json({ success: false, message: 'Reply cannot be empty.' });
+    const post = await prisma.forumPost.findUnique({ where: { id: req.params.postId }, select: { id: true, courseId: true, isLocked: true } });
+    if (!post || !(await canUseCourseForum(req.user, post.courseId))) {
+      return res.status(404).json({ success: false, message: 'Post not found.' });
+    }
+    if (post.isLocked && req.user.role === 'STUDENT') {
+      return res.status(403).json({ success: false, message: 'This discussion is locked.' });
+    }
     const reply = await prisma.forumReply.create({
-      data: { content: req.body.content, userId: req.user.id, postId: req.params.postId },
+      data: { content, userId: req.user.id, postId: post.id },
       include: { user: { select: { firstName: true, lastName: true, avatar: true } } },
     });
     res.status(201).json({ success: true, data: reply });
   } catch {
     res.status(500).json({ success: false, message: 'Failed to add reply.' });
+  }
+});
+
+// ==================== BOOKMARKS ====================
+router.get('/student/bookmarks', ...studentAuth, async (req, res) => {
+  try {
+    const bookmarks = await prisma.courseBookmark.findMany({
+      where: { userId: req.user.id, course: { status: 'PUBLISHED' } },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        course: {
+          select: {
+            id: true, title: true, slug: true, thumbnail: true, shortDesc: true, price: true, discountPrice: true,
+            isFree: true, level: true, totalLessons: true, totalDuration: true, totalStudents: true,
+            category: { select: { name: true } },
+          },
+        },
+      },
+    });
+    res.json({ success: true, data: bookmarks });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to load bookmarks.' });
+  }
+});
+
+// Toggle: bookmarks the course if it is not saved, removes it if it is
+router.post('/student/bookmarks/:courseId', ...studentAuth, async (req, res) => {
+  try {
+    const where = { userId_courseId: { userId: req.user.id, courseId: req.params.courseId } };
+    const existing = await prisma.courseBookmark.findUnique({ where });
+    if (existing) {
+      await prisma.courseBookmark.delete({ where });
+      return res.json({ success: true, data: { bookmarked: false } });
+    }
+    const course = await prisma.course.findUnique({ where: { id: req.params.courseId }, select: { status: true } });
+    if (!course || course.status !== 'PUBLISHED') return res.status(404).json({ success: false, message: 'Course not found.' });
+    await prisma.courseBookmark.create({ data: { userId: req.user.id, courseId: req.params.courseId } });
+    res.json({ success: true, data: { bookmarked: true } });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to update bookmark.' });
+  }
+});
+
+// ==================== LESSON NOTES ====================
+router.get('/student/courses/:courseId/notes', ...studentAuth, async (req, res) => {
+  try {
+    const notes = await prisma.lessonNote.findMany({
+      where: { userId: req.user.id, content: { section: { courseId: req.params.courseId } } },
+      orderBy: { createdAt: 'desc' },
+      include: { content: { select: { id: true, title: true } } },
+    });
+    res.json({ success: true, data: notes });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to load notes.' });
+  }
+});
+
+router.post('/student/notes', ...studentAuth, async (req, res) => {
+  try {
+    const text = cleanText(req.body.text, 5000);
+    const contentId = String(req.body.contentId || '');
+    if (!text || !contentId) return res.status(400).json({ success: false, message: 'Note text and lesson are required.' });
+    const content = await prisma.content.findUnique({ where: { id: contentId }, select: { section: { select: { courseId: true } } } });
+    if (!content) return res.status(404).json({ success: false, message: 'Lesson not found.' });
+    const enrolled = req.user.role === 'ADMIN' || await prisma.enrollment.findFirst({
+      where: { userId: req.user.id, courseId: content.section.courseId, status: { in: ACCESS_STATUSES } },
+      select: { id: true },
+    });
+    if (!enrolled) return res.status(403).json({ success: false, message: 'Enroll in this course to take notes.' });
+    const note = await prisma.lessonNote.create({
+      data: { userId: req.user.id, contentId, text, timestamp: Math.max(0, parseInt(req.body.timestamp, 10) || 0) },
+      include: { content: { select: { id: true, title: true } } },
+    });
+    res.status(201).json({ success: true, data: note });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to save note.' });
+  }
+});
+
+router.delete('/student/notes/:id', ...studentAuth, async (req, res) => {
+  try {
+    const { count } = await prisma.lessonNote.deleteMany({ where: { id: req.params.id, userId: req.user.id } });
+    if (!count) return res.status(404).json({ success: false, message: 'Note not found.' });
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to delete note.' });
   }
 });
 

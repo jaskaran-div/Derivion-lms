@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { extractText, parseQuestions } = require('../utils/quizImport');
+const { markLessonComplete, ACCESS_STATUSES } = require('../services/progress');
 
 // Answers arriving this long after the deadline are still accepted (network latency)
 const GRACE_MS = 30 * 1000;
@@ -268,6 +269,54 @@ const listQuizAttempts = async (req, res) => {
   }
 };
 
+// GET /api/admin/quizzes/:id/analytics — how each question performed across submitted attempts
+const getQuizAnalytics = async (req, res) => {
+  try {
+    const quiz = await prisma.assessment.findUnique({
+      where: { id: req.params.id },
+      include: { questions: { orderBy: { order: 'asc' } } },
+    });
+    if (!quiz) return res.status(404).json({ success: false, message: 'Quiz not found.' });
+
+    const attempts = await prisma.assessmentAttempt.findMany({
+      where: { assessmentId: quiz.id, status: 'SUBMITTED' },
+      select: { answers: true, score: true, isPassed: true },
+    });
+
+    const stats = Object.fromEntries(quiz.questions.map((q) => [q.id, {
+      questionId: q.id, text: q.text, options: q.options, correct: Number(q.correctAnswer),
+      answered: 0, correctCount: 0, skipped: 0, optionCounts: (Array.isArray(q.options) ? q.options : []).map(() => 0),
+    }]));
+    for (const a of attempts) {
+      for (const g of Array.isArray(a.answers) ? a.answers : []) {
+        const st = stats[g.questionId];
+        if (!st) continue;
+        if (g.selected === null || g.selected === undefined) { st.skipped++; continue; }
+        st.answered++;
+        if (g.isCorrect) st.correctCount++;
+        if (st.optionCounts[g.selected] !== undefined) st.optionCounts[g.selected]++;
+      }
+    }
+
+    const n = attempts.length;
+    res.json({
+      success: true,
+      data: {
+        attempts: n,
+        passRate: n ? (attempts.filter((a) => a.isPassed).length / n) * 100 : 0,
+        averageScore: n ? attempts.reduce((sum, a) => sum + Number(a.score), 0) / n : 0,
+        questions: quiz.questions.map((q) => {
+          const st = stats[q.id];
+          return { ...st, correctRate: n ? (st.correctCount / n) * 100 : 0 };
+        }),
+      },
+    });
+  } catch (error) {
+    console.error('getQuizAnalytics error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load analytics.' });
+  }
+};
+
 // ==================== STUDENT: TAKING A QUIZ ====================
 
 // Student may take a quiz if it is published and linked to a lesson of a course they are enrolled in.
@@ -344,6 +393,20 @@ const finalizeAttempt = async (attempt, quiz, { autoSubmitted = false } = {}) =>
     },
   });
   if (count === 0) return prisma.assessmentAttempt.findUnique({ where: { id: attempt.id } });
+
+  // A pass completes every lesson that uses this quiz in courses the learner is enrolled in
+  if (isPassed) {
+    const lessons = await prisma.content.findMany({
+      where: {
+        assessmentId: quiz.id,
+        section: { course: { enrollments: { some: { userId: attempt.userId, status: { in: ACCESS_STATUSES } } } } },
+      },
+      select: { id: true, section: { select: { courseId: true } } },
+    });
+    for (const l of lessons) {
+      await markLessonComplete(attempt.userId, l.id, l.section.courseId).catch((e) => console.error('quiz completion error:', e.message));
+    }
+  }
 
   await prisma.notification.create({
     data: {
@@ -593,7 +656,7 @@ module.exports = {
   // admin
   listQuizzes, getQuizAdmin, createQuiz, updateQuiz, deleteQuiz,
   addQuestion, updateQuestion, deleteQuestion, listQuizAttempts,
-  previewImport, bulkAddQuestions,
+  previewImport, bulkAddQuestions, getQuizAnalytics,
   // student
   getAssessment, startAttempt, saveProgress, submitAttempt,
 };

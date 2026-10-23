@@ -276,6 +276,28 @@ Blueprint's Render service URLs. If you use custom domains, update both values.
 5. Copy **Key Secret** to `RAZORPAY_KEY_SECRET` in `backend/.env`
 6. (Optional) Set up Webhooks in Razorpay Dashboard pointing to `http://<your-domain>/api/payments/webhook` and copy secret to `RAZORPAY_WEBHOOK_SECRET`
 
+### Per-course EMI configuration
+
+Set these backend-only environment variables in development and production:
+
+```dotenv
+RAZORPAY_CONFIG_STANDARD=config_TniERfRtPJaKjZ
+RAZORPAY_CONFIG_EMI=config_TniFJkBEcjWygb
+```
+
+The IDs are Razorpay Payment Configuration IDs, not credentials. Keep Razorpay Key Secret and webhook secrets backend-only. The admin course form determines EMI eligibility per course; existing courses default to EMI disabled.
+
+Razorpay Standard Checkout uses the documented [`checkout_config_id` field](https://razorpay.com/docs/payments/payment-gateway/web-integration/standard/configure-payment-methods/) on both the order creation request and the Checkout options. The backend reads the course's saved EMI setting and returns the selected configuration for Checkout; the browser does not choose the configuration. EMI availability remains subject to Razorpay's enabled instruments and customer eligibility.
+
+For a safe deployment:
+
+1. Back up the database using the established deployment process.
+2. Apply the additive Prisma migration with `npx prisma migrate deploy` from `backend`.
+3. Deploy the backend and frontend changes.
+4. Verify each course's EMI setting in the admin panel.
+5. Test both payment configurations in Razorpay Test Mode where those configuration IDs are available.
+6. Confirm the configuration selected on Checkout before enabling the feature in production.
+
 ---
 
 ## 🛠️ Useful Commands
@@ -292,3 +314,41 @@ npm run dev          # Start Next.js dev server
 npm run build        # Production build
 npm run lint         # ESLint check
 ```
+
+---
+
+## 🧰 Operations: cache, migrations, backups, monitoring
+
+### Redis (cache + shared rate limits)
+- Set `REDIS_URL` (e.g. `redis://127.0.0.1:6379`). Without it the API uses an in-memory cache, which is fine for a single server.
+- **Windows dev:** Redis runs inside WSL (Ubuntu). `npm run dev` in `backend/` runs `scripts/ensure-redis.js` first, which starts Redis and keeps WSL awake. Manual start: `npm run redis:start`.
+- **Linux server:** `sudo apt install redis-server` (binds to localhost by default), then set `REDIS_URL`.
+- `GET /api/health` reports `"cache": "redis"` or `"memory"`.
+
+### Database connections
+- `DATABASE_URL` — the **pooled** connection the app uses. On Supabase use the transaction pooler: port `6543` with `?pgbouncer=true&connection_limit=5`.
+- `DIRECT_URL` — the **session** connection (port `5432`) used only by `prisma migrate`.
+- Apply migrations on deploy: `npm run db:migrate:deploy` (in `backend/`).
+
+### Backups
+- `npm run db:backup` writes `backend/backups/derivion-<timestamp>.dump` (pg_dump custom format) and keeps the newest `BACKUP_KEEP` (default 14).
+- Set `BACKUP_TO_S3=true` to also upload each dump to the S3 bucket under `backups/`.
+- Requires the PostgreSQL client tools (`pg_dump`, same major version as the server or newer). On Ubuntu: `sudo apt install postgresql-client`.
+- Schedule it daily, e.g. cron: `0 2 * * * cd /srv/derivion/backend && npm run db:backup >> /var/log/derivion-backup.log 2>&1`
+- Restore: `pg_restore --clean --no-owner -d "<DIRECT_URL>" backups/<file>.dump`
+- Supabase paid plans also keep automatic daily backups; the script gives you copies you control.
+
+### Error monitoring & logs
+- API logs are JSON lines in production (stdout) — ship them to any log service.
+- Browser crashes are reported to `POST /api/client-errors` and appear in the API logs.
+- Optional Sentry: set `SENTRY_DSN` (and `SENTRY_TRACES_SAMPLE_RATE`, default 0.1) in `backend/.env`.
+
+### Security-related settings
+- `CLIENT_URL` must list the **exact** frontend origin(s), comma-separated (e.g. `https://lms.example.com`). Any other origin is rejected by CORS.
+- The refresh token is an httpOnly cookie. In production the API must be served over HTTPS (the cookie is `Secure; SameSite=None`).
+- `RAZORPAY_WEBHOOK_SECRET` must match the secret configured for the webhook in the Razorpay dashboard (events: `payment.captured`, `order.paid`, `refund.processed`).
+
+### Tests & CI
+- Backend: `cd backend && npm test` (Node test runner, database mocked).
+- Frontend: `npx tsc --noEmit`, `npx eslint src`, `npm run build`.
+- `.github/workflows/ci.yml` runs all of the above on every push to `main` and on pull requests.

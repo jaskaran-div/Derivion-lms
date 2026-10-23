@@ -1,4 +1,5 @@
 const { validationResult } = require('express-validator');
+const logger = require('../config/logger');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -16,7 +17,8 @@ const validate = (req, res, next) => {
 };
 
 const errorHandler = (err, req, res, next) => {
-  console.error('Error:', err);
+  const status = err.status || err.statusCode || 500;
+  if (status >= 500) logger.error(err.message, { stack: err.stack, method: req.method, path: req.originalUrl });
 
   // Prisma errors
   if (err.code === 'P2002') {
@@ -48,10 +50,15 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
-  // Default
-  res.status(err.status || 500).json({
+  // Malformed JSON body
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, message: 'Malformed JSON body.' });
+  }
+
+  // Default — never leak internals for server errors in production
+  res.status(status).json({
     success: false,
-    message: err.message || 'Internal server error.',
+    message: status >= 500 && process.env.NODE_ENV === 'production' ? 'Internal server error.' : (err.message || 'Internal server error.'),
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 };

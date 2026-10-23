@@ -104,7 +104,33 @@ const listStudents = async (req, res) => {
       select: studentSelect,
     });
 
-    res.json({ success: true, data: students });
+    // Activity report: total watch time per student plus derived progress / last activity
+    const watch = students.length
+      ? await prisma.contentProgress.groupBy({
+        by: ['userId'],
+        where: { userId: { in: students.map((st) => st.id) } },
+        _sum: { watchedSeconds: true },
+        _count: { _all: true },
+      })
+      : [];
+    const watchBy = Object.fromEntries(watch.map((w) => [w.userId, w._sum.watchedSeconds || 0]));
+
+    const data = students.map((st) => {
+      const active = st.enrollments.filter((e) => e.status !== 'REFUNDED');
+      const lastAccess = active.map((e) => e.lastAccessedAt).filter(Boolean).map((d) => new Date(d).getTime());
+      const lastActive = Math.max(st.lastLogin ? new Date(st.lastLogin).getTime() : 0, ...lastAccess, 0);
+      return {
+        ...st,
+        report: {
+          averageProgress: active.length ? active.reduce((sum, e) => sum + Number(e.progressPercent), 0) / active.length : 0,
+          completedCourses: active.filter((e) => e.status === 'COMPLETED').length,
+          watchSeconds: watchBy[st.id] || 0,
+          lastActive: lastActive ? new Date(lastActive) : null,
+        },
+      };
+    });
+
+    res.json({ success: true, data });
   } catch (error) {
     console.error('List students error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch students.' });

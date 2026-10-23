@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const { getActiveEnrollment, recomputeCourseProgress } = require('../services/progress');
 const {
   uploadToS3, generateS3Key, deleteFromS3, getPresignedUploadUrl, getPresignedDownloadUrl,
   isAwsConfigured, createMultipartUpload, getUploadPartUrl, completeMultipartUpload, abortMultipartUpload,
@@ -408,149 +409,118 @@ const deleteContent = async (req, res) => {
   }
 };
 
-// GET /api/student/contents/:id - Get content for enrolled student
+// GET /api/student/contents/:id - Get content for an enrolled student (or a free preview)
 const getContentForStudent = async (req, res) => {
   try {
     const { id } = req.params;
     const content = await prisma.content.findUnique({
       where: { id },
-      include: { section: { select: { courseId: true } } },
+      include: { section: { select: { courseId: true, isPublished: true, course: { select: { status: true } } } } },
     });
 
     if (!content) return res.status(404).json({ success: false, message: 'Content not found.' });
 
-    // Check if it's a free preview or if user is admin
-    const canAccess = content.isFree || req.user.role === 'ADMIN';
+    const isAdmin = req.user.role === 'ADMIN';
+    // Learners never see draft lessons, draft sections or unpublished courses
+    if (!isAdmin && (!content.isPublished || !content.section.isPublished || content.section.course.status !== 'PUBLISHED')) {
+      return res.status(404).json({ success: false, message: 'Content not found.' });
+    }
 
-    if (!canAccess) {
-      // Check enrollment
-      const enrollment = await prisma.enrollment.findUnique({
-        where: {
-          userId_courseId: { userId: req.user.id, courseId: content.section.courseId },
-        },
-      });
-
-      if (!enrollment || enrollment.status !== 'ACTIVE') {
+    if (!isAdmin && !content.isFree) {
+      const enrollment = await getActiveEnrollment(req.user.id, content.section.courseId);
+      if (!enrollment) {
         return res.status(403).json({ success: false, message: 'You are not enrolled in this course.' });
       }
     }
 
-    // Get streamable URL (presigned S3 URL or local upload URL)
+    // Short-lived signed URL; the player asks again if it expires mid-session
     let streamUrl = content.cloudFrontUrl;
     if (content.s3Key) {
       try {
-        streamUrl = await getPresignedDownloadUrl(content.s3Key, 7200); // 2 hours
+        streamUrl = await getPresignedDownloadUrl(content.s3Key, 3600);
       } catch (err) {
         console.warn('Could not generate presigned download URL, using cloudFrontUrl:', err.message);
       }
     }
 
-    res.json({ success: true, data: { ...content, cloudFrontUrl: streamUrl } });
+    const { s3Key, section, ...safe } = content;
+    res.json({ success: true, data: { ...safe, courseId: section.courseId, cloudFrontUrl: streamUrl } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to get content.' });
   }
 };
 
 // POST /api/student/contents/:id/progress
+// Records watch position for enrolled learners. Quiz lessons can only be completed by passing the quiz.
 const updateProgress = async (req, res) => {
   try {
     const { id } = req.params;
-    const { watchedSeconds, lastPosition, isCompleted } = req.body;
+    const watchedSeconds = Number.isFinite(Number(req.body.watchedSeconds)) ? Math.max(0, Math.floor(Number(req.body.watchedSeconds))) : undefined;
+    const lastPosition = Number.isFinite(Number(req.body.lastPosition)) ? Math.max(0, Math.floor(Number(req.body.lastPosition))) : undefined;
+    const isCompleted = req.body.isCompleted;
 
-    // Never decrement watchedSeconds (only advance)
+    const content = await prisma.content.findUnique({
+      where: { id },
+      select: { id: true, type: true, duration: true, isPublished: true, section: { select: { courseId: true, isPublished: true } } },
+    });
+    if (!content || !content.isPublished || !content.section.isPublished) {
+      return res.status(404).json({ success: false, message: 'Content not found.' });
+    }
+    const courseId = content.section.courseId;
+
+    const enrollment = await getActiveEnrollment(req.user.id, courseId);
+    if (!enrollment) {
+      return res.status(403).json({ success: false, message: 'Enroll in this course to track progress.' });
+    }
+
+    if (isCompleted === true && content.type === 'QUIZ') {
+      return res.status(400).json({ success: false, message: 'Pass the quiz to complete this lesson.' });
+    }
+
     const existing = await prisma.contentProgress.findUnique({
       where: { userId_contentId: { userId: req.user.id, contentId: id } },
     });
 
-    const newWatchedSeconds = watchedSeconds !== undefined
-      ? Math.max(watchedSeconds, existing?.watchedSeconds || 0)
-      : undefined;
+    // Never decrement watchedSeconds, and never beyond the lesson length
+    const cap = content.duration && content.duration > 0 ? content.duration : Number.MAX_SAFE_INTEGER;
+    const newWatched = watchedSeconds !== undefined ? Math.min(cap, Math.max(watchedSeconds, existing?.watchedSeconds || 0)) : undefined;
 
     const progress = await prisma.contentProgress.upsert({
       where: { userId_contentId: { userId: req.user.id, contentId: id } },
       update: {
-        ...(newWatchedSeconds !== undefined && { watchedSeconds: newWatchedSeconds }),
-        ...(lastPosition !== undefined && { lastPosition }),
-        ...(isCompleted && !existing?.isCompleted && {
-          isCompleted: true,
-          completedAt: new Date(),
-        }),
+        ...(newWatched !== undefined && { watchedSeconds: newWatched }),
+        ...(lastPosition !== undefined && { lastPosition: Math.min(cap, lastPosition) }),
+        ...(isCompleted === true && !existing?.isCompleted && { isCompleted: true, completedAt: new Date() }),
+        ...(isCompleted === false && existing?.isCompleted && { isCompleted: false, completedAt: null }),
       },
       create: {
         userId: req.user.id,
         contentId: id,
-        watchedSeconds: watchedSeconds || 0,
-        lastPosition: lastPosition || 0,
-        isCompleted: isCompleted || false,
-        completedAt: isCompleted ? new Date() : null,
+        watchedSeconds: newWatched || 0,
+        lastPosition: lastPosition !== undefined ? Math.min(cap, lastPosition) : 0,
+        isCompleted: isCompleted === true,
+        completedAt: isCompleted === true ? new Date() : null,
       },
     });
 
-    // Update overall course progress + last accessed timestamp
-    const content = await prisma.content.findUnique({
-      where: { id },
-      include: { section: { select: { courseId: true } } },
+    // Completion state changed → recompute course progress (may complete the course and issue the certificate)
+    const completionChanged = isCompleted !== undefined && Boolean(existing?.isCompleted) !== (isCompleted === true);
+    const course = completionChanged
+      ? await recomputeCourseProgress(req.user.id, courseId)
+      : (await prisma.enrollment.update({ where: { id: enrollment.id }, data: { lastAccessedAt: new Date() } }), null);
+
+    res.json({
+      success: true,
+      data: {
+        ...progress,
+        ...(course && { courseProgress: course.progressPercent, courseCompleted: course.completed, certificateIssued: Boolean(course.certificate) }),
+      },
     });
-
-    if (content) {
-      const courseId = content.section.courseId;
-
-      // Update lastAccessedAt on enrollment
-      await prisma.enrollment.updateMany({
-        where: { userId: req.user.id, courseId },
-        data: { lastAccessedAt: new Date() },
-      });
-
-      // Recalculate completion percentage
-      const [totalContents, completedContents] = await Promise.all([
-        prisma.content.count({
-          where: { section: { courseId }, isPublished: true },
-        }),
-        prisma.contentProgress.count({
-          where: {
-            userId: req.user.id,
-            isCompleted: true,
-            content: { section: { courseId } },
-          },
-        }),
-      ]);
-
-      const progressPercent = totalContents > 0 ? (completedContents / totalContents) * 100 : 0;
-
-      await prisma.enrollment.updateMany({
-        where: { userId: req.user.id, courseId },
-        data: {
-          progressPercent,
-          ...(progressPercent >= 100 ? { status: 'COMPLETED', completedAt: new Date() } : {}),
-        },
-      });
-
-      if (progressPercent >= 100) {
-        const existingCert = await prisma.certificate.findUnique({
-          where: { userId_courseId: { userId: req.user.id, courseId } },
-        });
-
-        if (!existingCert) {
-          const certCount = await prisma.certificate.count();
-          const certNo = `CERT-${new Date().getFullYear()}-${String(certCount + 1).padStart(6, '0')}`;
-          await prisma.certificate.create({
-            data: {
-              userId: req.user.id,
-              courseId,
-              certificateNo: certNo,
-            },
-          }).catch((err) => console.error('Certificate auto-issue error:', err.message));
-        }
-      }
-    }
-
-    res.json({ success: true, data: progress });
   } catch (error) {
     console.error('Update progress error:', error);
     res.status(500).json({ success: false, message: 'Failed to update progress.' });
   }
 };
-
 
 // POST /api/courses/content/:id/duration - Sync video duration
 const syncContentDuration = async (req, res) => {

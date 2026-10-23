@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
 
+// While a one-time password is active, only these endpoints are usable
+const MUST_CHANGE_ALLOWED = ['/api/auth/me', '/api/auth/change-password', '/api/auth/logout', '/api/notifications'];
+
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -21,6 +24,8 @@ const authenticate = async (req, res, next) => {
         role: true,
         isActive: true,
         avatar: true,
+        mustChangePassword: true,
+        passwordChangedAt: true,
       },
     });
 
@@ -32,7 +37,22 @@ const authenticate = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Account is deactivated. Contact support.' });
     }
 
-    req.user = user;
+    // Tokens issued before the last password change are dead (password reset / change signs out everywhere)
+    if (user.passwordChangedAt && decoded.iat * 1000 < user.passwordChangedAt.getTime() - 1000) {
+      return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', message: 'Session expired. Please login again.' });
+    }
+
+    const path = req.originalUrl.split('?')[0];
+    if (user.mustChangePassword && !MUST_CHANGE_ALLOWED.includes(path)) {
+      return res.status(403).json({
+        success: false,
+        code: 'MUST_CHANGE_PASSWORD',
+        message: 'Please set a new password before continuing.',
+      });
+    }
+
+    const { passwordChangedAt, ...safeUser } = user;
+    req.user = safeUser;
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
