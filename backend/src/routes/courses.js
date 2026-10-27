@@ -115,29 +115,69 @@ router.get('/categories/all', async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to fetch categories.' });
   }
 });
+// Admin list: every category (active or not) with how many courses use it
+router.get('/categories/admin', ...adminAuth, async (req, res) => {
+  try {
+    const categories = await prisma.category.findMany({
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { courses: true } } },
+    });
+    res.json({ success: true, data: categories });
+  } catch {
+    res.status(500).json({ success: false, message: 'Failed to fetch categories.' });
+  }
+});
+
+const categorySlug = (name) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'category';
+
+// Only these fields may be set from the form
+const categoryInput = (body) => {
+  const data = {};
+  if (typeof body.name === 'string') data.name = body.name.trim().slice(0, 100);
+  if (body.description !== undefined) data.description = body.description ? String(body.description).trim().slice(0, 500) : null;
+  if (body.icon !== undefined) data.icon = body.icon ? String(body.icon).trim().slice(0, 16) : null;
+  if (typeof body.isActive === 'boolean') data.isActive = body.isActive;
+  return data;
+};
+
+const categoryConflict = (res) => res.status(409).json({ success: false, message: 'A category with this name already exists.' });
+
 router.post('/categories', ...adminAuth, async (req, res) => {
   try {
-    const { name, description, icon } = req.body;
-    const slug = name.toLowerCase().replace(/\s+/g, '-');
-    const cat = await prisma.category.create({ data: { name, slug, description, icon } });
+    const data = categoryInput(req.body || {});
+    if (!data.name) return res.status(400).json({ success: false, message: 'Category name is required.' });
+    const cat = await prisma.category.create({ data: { ...data, slug: categorySlug(data.name) } });
     res.status(201).json({ success: true, data: cat });
   } catch (error) {
+    if (error.code === 'P2002') return categoryConflict(res);
+    console.error('Create category error:', error);
     res.status(500).json({ success: false, message: 'Failed to create category.' });
   }
 });
 router.put('/categories/:id', ...adminAuth, async (req, res) => {
   try {
-    const cat = await prisma.category.update({ where: { id: req.params.id }, data: req.body });
+    const data = categoryInput(req.body || {});
+    if (data.name === '') return res.status(400).json({ success: false, message: 'Category name is required.' });
+    if (data.name) data.slug = categorySlug(data.name);
+    const cat = await prisma.category.update({ where: { id: req.params.id }, data });
     res.json({ success: true, data: cat });
-  } catch {
+  } catch (error) {
+    if (error.code === 'P2002') return categoryConflict(res);
+    if (error.code === 'P2025') return res.status(404).json({ success: false, message: 'Category not found.' });
+    console.error('Update category error:', error);
     res.status(500).json({ success: false, message: 'Failed to update category.' });
   }
 });
 router.delete('/categories/:id', ...adminAuth, async (req, res) => {
   try {
+    const courses = await prisma.course.count({ where: { categoryId: req.params.id } });
+    if (courses) {
+      return res.status(409).json({ success: false, message: `This category has ${courses} course(s). Move them to another category first.` });
+    }
     await prisma.category.delete({ where: { id: req.params.id } });
     res.json({ success: true, message: 'Category deleted.' });
-  } catch {
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ success: false, message: 'Category not found.' });
     res.status(500).json({ success: false, message: 'Failed to delete category.' });
   }
 });

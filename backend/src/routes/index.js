@@ -8,7 +8,7 @@ const {
 const {
   getDashboard: teacherDashboard,
   listStudents, createStudent, updateStudent, deleteStudent, enrollStudent, listCourses: teacherCourses,
-  resetStudentPassword,
+  resetStudentPassword, getMyCourses: teacherMyCourses, getStudent: teacherGetStudent,
 } = require('../controllers/teacherController');
 const {
   searchUsers,
@@ -36,7 +36,7 @@ const {
   assignTeacherToClass, removeTeacherFromClass,
   assignCourseToSchool, assignCourseToClass,
   listClassStudents, addStudentToClass, removeStudentFromClass,
-  getSchoolAnalytics,
+  getSchoolAnalytics, getSchoolOverview, exportSchoolStudents, exportSchools,
   listSchoolMembers, addSchoolMember, removeSchoolMember,
 } = require('../controllers/schoolController');
 const {
@@ -45,7 +45,9 @@ const {
 const {
   getOverview, getCourseAnalytics, getAtRiskStudents, getClassReport, exportStudentsCSV,
 } = require('../controllers/analyticsController');
-const { listAuditLogs } = require('../controllers/auditController');
+const { listAuditLogs, exportAuditLogs, recordClientActivity, logActivity } = require('../controllers/auditController');
+const { getNavIndicators, markReadByLink } = require('../controllers/navController');
+const { learnerEditBlocked } = require('../controllers/authController');
 const { listSessions, createSession, updateSession, deleteSession } = require('../controllers/mentorController');
 const prisma = require('../config/database');
 const { uploadToS3, generateS3Key } = require('../config/aws');
@@ -95,7 +97,10 @@ router.get('/settings/public', async (req, res) => {
 // School management
 router.get('/admin/schools', ...adminAuth, listSchools);
 router.post('/admin/schools', ...adminAuth, createSchool);
+router.get('/admin/schools/export', ...adminAuth, exportSchools);
 router.get('/admin/schools/:id', ...adminAuth, getSchool);
+router.get('/admin/schools/:id/overview', ...adminAuth, getSchoolOverview);
+router.get('/admin/schools/:id/export', ...adminAuth, exportSchoolStudents);
 router.put('/admin/schools/:id', ...adminAuth, updateSchool);
 router.delete('/admin/schools/:id', ...adminAuth, deleteSchool);
 router.get('/admin/schools/:id/members', ...adminAuth, listSchoolMembers);
@@ -124,6 +129,11 @@ router.get('/admin/analytics/export/students', ...adminAuth, exportStudentsCSV);
 
 // Audit logs
 router.get('/admin/audit-logs', ...adminAuth, listAuditLogs);
+router.get('/admin/audit-logs/export', ...adminAuth, exportAuditLogs);
+
+// Activity reported by the app (page visits, downloads) and the sidebar "new" dots
+router.post('/activity', authenticate, recordClientActivity);
+router.get('/nav/indicators', authenticate, getNavIndicators);
 
 router.get('/admin/support', ...adminAuth, adminListThreads);
 router.get('/admin/support/:id', ...adminAuth, adminGetThread);
@@ -140,6 +150,7 @@ router.delete('/teacher/students/:id', ...teacherAuth, deleteStudent);
 router.post('/teacher/students/:id/enroll', ...teacherAuth, enrollStudent);
 router.post('/teacher/students/:id/reset-password', ...teacherAuth, resetStudentPassword);
 router.get('/teacher/courses', ...teacherAuth, teacherCourses);
+router.get('/teacher/my-courses', ...teacherAuth, teacherMyCourses);
 
 // Bulk import
 router.get('/teacher/students/import/template', ...staffAuth, getImportTemplate);
@@ -147,6 +158,7 @@ router.post('/teacher/students/import/validate', ...staffAuth, validateImport);
 router.post('/teacher/students/import', ...staffAuth, importStudents);
 router.get('/teacher/students/import/jobs', ...staffAuth, listImportJobs);
 router.get('/teacher/students/import/jobs/:id', ...staffAuth, getImportJob);
+router.get('/teacher/students/:id', ...teacherAuth, teacherGetStudent);
 // Admin can also use bulk import
 router.get('/admin/students/import/template', ...adminAuth, getImportTemplate);
 router.post('/admin/students/import/validate', ...adminAuth, validateImport);
@@ -184,8 +196,11 @@ const sendNotification = async (req, res) => {
 
     const isTeacher = req.user.role === 'TEACHER';
 
-    // 1. INDIVIDUAL MODE
+    // 1. INDIVIDUAL MODE (admins only — teachers send to their audience in bulk)
     if (mode === 'INDIVIDUAL' || recipientId || (Array.isArray(userIds) && userIds.length > 0)) {
+      if (isTeacher) {
+        return res.status(403).json({ success: false, message: 'Teachers can send notifications to their students in bulk only.' });
+      }
       const targetIds = Array.isArray(userIds) && userIds.length > 0
         ? userIds
         : (recipientId ? [recipientId] : []);
@@ -393,9 +408,10 @@ router.get('/notifications', ...studentAuth, async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to fetch notifications.' });
   }
 });
+router.put('/notifications/read-by-link', ...studentAuth, markReadByLink);
 router.put('/notifications/:id/read', ...studentAuth, async (req, res) => {
   try {
-    await prisma.notification.update({ where: { id: req.params.id }, data: { isRead: true } });
+    await prisma.notification.updateMany({ where: { id: req.params.id, userId: req.user.id }, data: { isRead: true } });
     res.json({ success: true });
   } catch {
     res.status(500).json({ success: false });
@@ -413,6 +429,7 @@ router.put('/notifications/read-all', ...studentAuth, async (req, res) => {
 // Avatar upload
 router.post('/profile/avatar', ...studentAuth, imageUpload.single('avatar'), async (req, res) => {
   try {
+    if (await learnerEditBlocked(req, res)) return;
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded.' });
     const key = generateS3Key(`avatars`, req.file.originalname);
     const { cloudFrontUrl } = await uploadToS3(req.file.buffer, key, req.file.mimetype);
@@ -475,6 +492,7 @@ router.post('/courses/:courseId/forum', ...studentAuth, async (req, res) => {
       data: { title, content, userId: req.user.id, courseId: req.params.courseId },
       include: { user: { select: { firstName: true, lastName: true, avatar: true } } },
     });
+    logActivity(req, 'FORUM_POST', { targetId: post.id, targetType: 'forum_post', title, courseId: req.params.courseId });
     res.status(201).json({ success: true, data: post });
   } catch {
     res.status(500).json({ success: false, message: 'Failed to create post.' });
@@ -486,9 +504,10 @@ router.get('/forum/posts/:postId', ...studentAuth, async (req, res) => {
     const post = await prisma.forumPost.findUnique({
       where: { id: req.params.postId },
       include: {
-        user: { select: { firstName: true, lastName: true, avatar: true } },
+        user: { select: { firstName: true, lastName: true, avatar: true, role: true } },
+        course: { select: { id: true, title: true, slug: true } },
         replies: {
-          include: { user: { select: { firstName: true, lastName: true, avatar: true } } },
+          include: { user: { select: { firstName: true, lastName: true, avatar: true, role: true } } },
           orderBy: [{ isAnswer: 'desc' }, { createdAt: 'asc' }],
         },
       },
@@ -516,8 +535,9 @@ router.post('/forum/posts/:postId/reply', ...studentAuth, async (req, res) => {
     }
     const reply = await prisma.forumReply.create({
       data: { content, userId: req.user.id, postId: post.id },
-      include: { user: { select: { firstName: true, lastName: true, avatar: true } } },
+      include: { user: { select: { firstName: true, lastName: true, avatar: true, role: true } } },
     });
+    logActivity(req, 'FORUM_REPLY', { targetId: post.id, targetType: 'forum_post' });
     res.status(201).json({ success: true, data: reply });
   } catch {
     res.status(500).json({ success: false, message: 'Failed to add reply.' });

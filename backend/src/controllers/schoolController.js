@@ -1,5 +1,17 @@
 const prisma = require('../config/database');
 const { logAudit } = require('./auditController');
+const { schoolStudentWhere, schoolTeacherWhere } = require('../services/learners');
+const { sendCSV, isoDate } = require('../utils/csv');
+
+// Student and teacher head-counts per school (students include those created by the school's teachers)
+const schoolHeadcounts = async (schoolId) => {
+  const [students, activeStudents, teachers] = await Promise.all([
+    prisma.user.count({ where: schoolStudentWhere(schoolId) }),
+    prisma.user.count({ where: { ...schoolStudentWhere(schoolId), isActive: true } }),
+    prisma.user.count({ where: schoolTeacherWhere(schoolId) }),
+  ]);
+  return { students, activeStudents, teachers };
+};
 
 // ==================== SCHOOL CRUD ====================
 
@@ -39,10 +51,12 @@ const listSchools = async (req, res) => {
       prisma.school.count({ where }),
     ]);
 
+    const counts = await Promise.all(schools.map((s) => schoolHeadcounts(s.id)));
+
     res.json({
       success: true,
       data: {
-        schools,
+        schools: schools.map((s, i) => ({ ...s, stats: counts[i] })),
         pagination: {
           total,
           page: parseInt(page),
@@ -431,11 +445,8 @@ const getSchoolAnalytics = async (req, res) => {
       : undefined;
 
     // Get all students in this school
-    const studentMemberships = await prisma.schoolMembership.findMany({
-      where: { schoolId, role: 'STUDENT', isActive: true },
-      select: { userId: true },
-    });
-    const studentIds = studentMemberships.map((m) => m.userId);
+    const schoolStudents = await prisma.user.findMany({ where: schoolStudentWhere(schoolId), select: { id: true } });
+    const studentIds = schoolStudents.map((m) => m.id);
 
     const [
       totalStudents,
@@ -509,6 +520,189 @@ const getSchoolAnalytics = async (req, res) => {
   }
 };
 
+// ==================== SCHOOL OVERVIEW & EXPORTS ====================
+
+const overviewStudentSelect = {
+  id: true, firstName: true, lastName: true, username: true, email: true,
+  guardianEmail: true, guardianPhone: true, isActive: true, lastLogin: true, createdAt: true,
+  createdBy: { select: { id: true, firstName: true, lastName: true, role: true } },
+  studentBatches: { where: { class: { isActive: true } }, select: { class: { select: { id: true, name: true, section: true, schoolId: true } } } },
+  enrollments: {
+    where: { status: { not: 'REFUNDED' } },
+    select: {
+      status: true, progressPercent: true, enrolledAt: true, completedAt: true, lastAccessedAt: true,
+      course: { select: { id: true, title: true } },
+    },
+  },
+  certificates: { select: { certificateId: true, certificateNo: true, issuedAt: true, course: { select: { title: true } } } },
+};
+
+const summarizeStudent = (st, schoolId) => {
+  const enrollments = st.enrollments.map((e) => ({ ...e, progressPercent: Number(e.progressPercent) }));
+  const lastAccess = Math.max(
+    st.lastLogin ? st.lastLogin.getTime() : 0,
+    ...enrollments.map((e) => (e.lastAccessedAt ? e.lastAccessedAt.getTime() : 0)),
+  );
+  return {
+    ...st,
+    enrollments,
+    classes: st.studentBatches.filter((b) => b.class.schoolId === schoolId).map((b) => b.class),
+    studentBatches: undefined,
+    averageProgress: enrollments.length ? enrollments.reduce((s, e) => s + e.progressPercent, 0) / enrollments.length : 0,
+    completedCourses: enrollments.filter((e) => e.status === 'COMPLETED').length,
+    lastActive: lastAccess ? new Date(lastAccess) : null,
+  };
+};
+
+const loadSchoolStudents = async (schoolId) => {
+  const students = await prisma.user.findMany({
+    where: schoolStudentWhere(schoolId),
+    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    take: 2000,
+    select: overviewStudentSelect,
+  });
+  return students.map((st) => summarizeStudent(st, schoolId));
+};
+
+// GET /api/admin/schools/:id/overview — everything the school page shows: students with progress, teachers, course uptake
+const getSchoolOverview = async (req, res) => {
+  try {
+    const schoolId = req.params.id;
+    const school = await prisma.school.findUnique({ where: { id: schoolId }, select: { id: true } });
+    if (!school) return res.status(404).json({ success: false, message: 'School not found.' });
+
+    const [students, teachers] = await Promise.all([
+      loadSchoolStudents(schoolId),
+      prisma.user.findMany({
+        where: schoolTeacherWhere(schoolId),
+        orderBy: { firstName: 'asc' },
+        select: {
+          id: true, firstName: true, lastName: true, email: true, phone: true, isActive: true, lastLogin: true,
+          teacherAssignments: { where: { class: { schoolId } }, select: { class: { select: { id: true, name: true, section: true } } } },
+          _count: { select: { createdStudents: true } },
+        },
+      }),
+    ]);
+
+    // Course uptake across the school's students
+    const courses = new Map();
+    for (const st of students) {
+      for (const e of st.enrollments) {
+        const c = courses.get(e.course.id) || { id: e.course.id, title: e.course.title, enrolled: 0, completed: 0, progressSum: 0 };
+        c.enrolled += 1;
+        c.progressSum += e.progressPercent;
+        if (e.status === 'COMPLETED') c.completed += 1;
+        courses.set(c.id, c);
+      }
+    }
+    const courseStats = [...courses.values()]
+      .map(({ progressSum, ...c }) => ({ ...c, averageProgress: c.enrolled ? progressSum / c.enrolled : 0 }))
+      .sort((a, b) => b.enrolled - a.enrolled);
+
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const totalEnrollments = students.reduce((s, st) => s + st.enrollments.length, 0);
+    const completedEnrollments = students.reduce((s, st) => s + st.completedCourses, 0);
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalStudents: students.length,
+          activeStudents: students.filter((s) => s.isActive).length,
+          activeThisWeek: students.filter((s) => s.lastActive && s.lastActive.getTime() >= weekAgo).length,
+          neverLoggedIn: students.filter((s) => !s.lastLogin).length,
+          notStarted: students.filter((s) => s.enrollments.length === 0).length,
+          totalTeachers: teachers.length,
+          totalEnrollments,
+          completedEnrollments,
+          certificatesIssued: students.reduce((s, st) => s + st.certificates.length, 0),
+          completionRate: totalEnrollments ? (completedEnrollments / totalEnrollments) * 100 : 0,
+          averageProgress: students.length ? students.reduce((s, st) => s + st.averageProgress, 0) / students.length : 0,
+        },
+        students,
+        teachers: teachers.map(({ teacherAssignments, _count, ...t }) => ({
+          ...t,
+          classes: teacherAssignments.map((a) => a.class),
+          studentsCreated: _count.createdStudents,
+        })),
+        courseStats,
+      },
+    });
+  } catch (error) {
+    console.error('School overview error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load school details.' });
+  }
+};
+
+// GET /api/admin/schools/:id/export — CSV of the school's students with their progress
+const exportSchoolStudents = async (req, res) => {
+  try {
+    const school = await prisma.school.findUnique({ where: { id: req.params.id }, select: { code: true } });
+    if (!school) return res.status(404).json({ success: false, message: 'School not found.' });
+    const students = await loadSchoolStudents(req.params.id);
+    sendCSV(
+      res,
+      `school-${school.code}-students_${isoDate(new Date())}.csv`,
+      ['First name', 'Last name', 'Login ID', 'Guardian email', 'Guardian phone', 'Classes', 'Added by', 'Status',
+        'Courses', 'Completed courses', 'Average progress %', 'Certificates', 'Course progress', 'Last active', 'Joined'],
+      students.map((s) => [
+        s.firstName, s.lastName, s.username || s.email, s.guardianEmail, s.guardianPhone,
+        s.classes.map((c) => `${c.name}${c.section ? ` ${c.section}` : ''}`).join(', '),
+        s.createdBy ? `${s.createdBy.firstName} ${s.createdBy.lastName}` : '',
+        s.isActive ? 'Active' : 'Inactive',
+        s.enrollments.length, s.completedCourses, s.averageProgress.toFixed(1), s.certificates.length,
+        s.enrollments.map((e) => `${e.course.title} (${e.progressPercent.toFixed(0)}%)`).join('; '),
+        s.lastActive ? s.lastActive.toISOString() : 'Never', isoDate(s.createdAt),
+      ])
+    );
+  } catch (error) {
+    console.error('Export school students error:', error);
+    res.status(500).json({ success: false, message: 'Failed to export students.' });
+  }
+};
+
+// GET /api/admin/schools/export — CSV of every school with its details and head-counts
+const exportSchools = async (req, res) => {
+  try {
+    const schools = await prisma.school.findMany({
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { classes: true, courseAssignments: true } } },
+    });
+    const stats = await Promise.all(schools.map(async (s) => {
+      const students = await prisma.user.findMany({ where: schoolStudentWhere(s.id), select: { id: true } });
+      const ids = students.map((x) => x.id);
+      const [heads, enrollments, completed, certificates] = await Promise.all([
+        schoolHeadcounts(s.id),
+        prisma.enrollment.count({ where: { userId: { in: ids }, status: { not: 'REFUNDED' } } }),
+        prisma.enrollment.count({ where: { userId: { in: ids }, status: 'COMPLETED' } }),
+        prisma.certificate.count({ where: { userId: { in: ids } } }),
+      ]);
+      return { ...heads, enrollments, completed, certificates };
+    }));
+
+    await logAudit({ userId: req.user.id, action: 'ADMIN_ACTION', details: { action: 'SCHOOLS_EXPORT', rows: schools.length }, req });
+
+    sendCSV(
+      res,
+      `schools_${isoDate(new Date())}.csv`,
+      ['Name', 'Code', 'Status', 'Address', 'City', 'State', 'Pincode', 'Phone', 'Email', 'Students', 'Active students',
+        'Teachers', 'Classes', 'Assigned courses', 'Enrollments', 'Completed enrollments', 'Completion %', 'Certificates', 'Created'],
+      schools.map((s, i) => {
+        const st = stats[i];
+        return [
+          s.name, s.code, s.isActive ? 'Active' : 'Inactive', s.address, s.city, s.state, s.pincode, s.phone, s.email,
+          st.students, st.activeStudents, st.teachers, s._count.classes, s._count.courseAssignments,
+          st.enrollments, st.completed, st.enrollments ? ((st.completed / st.enrollments) * 100).toFixed(1) : '0.0',
+          st.certificates, isoDate(s.createdAt),
+        ];
+      })
+    );
+  } catch (error) {
+    console.error('Export schools error:', error);
+    res.status(500).json({ success: false, message: 'Failed to export schools.' });
+  }
+};
+
 // ==================== SCHOOL MEMBERS ====================
 
 // GET /api/admin/schools/:id/members
@@ -545,6 +739,7 @@ const listSchoolMembers = async (req, res) => {
               firstName: true,
               lastName: true,
               email: true,
+              username: true,
               avatar: true,
               role: true,
               isActive: true,
@@ -650,6 +845,6 @@ module.exports = {
   assignTeacherToClass, removeTeacherFromClass,
   assignCourseToSchool, assignCourseToClass,
   listClassStudents, addStudentToClass, removeStudentFromClass,
-  getSchoolAnalytics,
+  getSchoolAnalytics, getSchoolOverview, exportSchoolStudents, exportSchools,
   listSchoolMembers, addSchoolMember, removeSchoolMember,
 };

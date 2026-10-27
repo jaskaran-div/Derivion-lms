@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { extractText, parseQuestions } = require('../utils/quizImport');
 const { markLessonComplete, ACCESS_STATUSES } = require('../services/progress');
+const { logActivity } = require('./auditController');
 
 // Answers arriving this long after the deadline are still accepted (network latency)
 const GRACE_MS = 30 * 1000;
@@ -550,6 +551,7 @@ const startAttempt = async (req, res) => {
           expiresAt: quiz.timeLimit ? new Date(startedAt.getTime() + quiz.timeLimit * 60 * 1000) : null,
         },
       });
+      logActivity(req, 'QUIZ_STARTED', { targetId: quiz.id, targetType: 'assessment', quiz: quiz.title });
     }
 
     res.json({
@@ -634,6 +636,10 @@ const submitAttempt = async (req, res) => {
         });
       }
       finalAttempt = await finalizeAttempt(attempt, quiz, { autoSubmitted: !!late || !!req.body.autoSubmitted });
+      logActivity(req, 'QUIZ_SUBMITTED', {
+        targetId: quiz.id, targetType: 'assessment', quiz: quiz.title,
+        score: Number(finalAttempt.score), passed: finalAttempt.isPassed, autoSubmitted: finalAttempt.autoSubmitted,
+      });
     }
 
     const used = await prisma.assessmentAttempt.count({ where: { userId: req.user.id, assessmentId: quiz.id } });

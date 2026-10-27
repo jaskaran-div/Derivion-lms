@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/database');
 const { generateUsername, generatePassword, studentEmail } = require('../utils/credentials');
+const { teacherSchoolId } = require('../services/learners');
 const { logAudit } = require('./auditController');
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -124,8 +125,10 @@ const validateImport = async (req, res) => {
 // POST /api/teacher/students/import
 const importStudents = async (req, res) => {
   try {
-    const { csvData, schoolId, classId, courseIds: defaultCourseIds = [] } = req.body;
+    const { csvData, classId, courseIds: defaultCourseIds = [] } = req.body;
     const teacherId = req.user.id;
+    // Teachers' imports go to their own school when none is picked
+    const schoolId = req.body.schoolId || (req.user.role === 'TEACHER' ? await teacherSchoolId(teacherId) : null);
 
     if (!csvData) {
       return res.status(400).json({ success: false, message: 'csvData is required.' });

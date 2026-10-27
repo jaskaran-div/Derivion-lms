@@ -159,7 +159,7 @@ const createApp = (limiters) => {
   });
 
   app.use('/api/auth/login', limiters.login);
-  app.use(['/api/auth/register', '/api/auth/forgot-password', '/api/auth/reset-password', '/api/auth/verify-email', '/api/auth/resend-verification'], limiters.sensitive);
+  app.use(['/api/auth/register', '/api/auth/forgot-password', '/api/auth/reset-password', '/api/auth/verify-email', '/api/auth/resend-verification', '/api/auth/verify-otp', '/api/auth/resend-otp'], limiters.sensitive);
   app.use('/api', limiters.api);
 
   app.use('/api/auth', authRoutes);

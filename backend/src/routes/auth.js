@@ -3,6 +3,7 @@ const { body } = require('express-validator');
 const router = express.Router();
 const {
   register, login, refreshToken, logout,
+  verifyEmailOtp, resendEmailOtp,
   forgotPassword, resetPassword, verifyEmail, resendVerification,
   getMe, updateProfile, changePassword,
 } = require('../controllers/authController');
@@ -32,6 +33,8 @@ router.post(
   login
 );
 
+router.post('/verify-otp', [body('otpToken').isString().notEmpty(), body('otp').isString().notEmpty()], validate, verifyEmailOtp);
+router.post('/resend-otp', body('otpToken').isString().notEmpty(), validate, resendEmailOtp);
 router.post('/refresh', refreshToken);
 router.post('/logout', optionalAuth, logout);
 // Self-service password reset emails are off: teachers and admins reset passwords.

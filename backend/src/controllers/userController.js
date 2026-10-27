@@ -204,7 +204,7 @@ const getDashboardStats = async (req, res) => {
         where: { role: 'STUDENT' },
         orderBy: { createdAt: 'desc' },
         take: 5,
-        select: { id: true, firstName: true, lastName: true, email: true, createdAt: true, avatar: true },
+        select: { id: true, firstName: true, lastName: true, email: true, username: true, createdAt: true, avatar: true },
       }),
 
       // Recent enrollments
@@ -212,7 +212,7 @@ const getDashboardStats = async (req, res) => {
         orderBy: { enrolledAt: 'desc' },
         take: 5,
         include: {
-          user: { select: { firstName: true, lastName: true, email: true } },
+          user: { select: { firstName: true, lastName: true, email: true, username: true } },
           course: { select: { title: true, thumbnail: true } },
         },
       }),

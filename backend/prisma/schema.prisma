@@ -84,6 +84,7 @@ enum AuditAction {
   CLASS_ASSIGNED
   BULK_IMPORT
   ADMIN_ACTION
+  ACTIVITY // learner/staff activity after login (lesson opened, quiz submitted, page visited…)
 }
 
 // ==================== SCHOOL MANAGEMENT ====================
@@ -295,8 +296,10 @@ model User {
   resetPasswordToken   String?
   resetPasswordExpiry  DateTime?
   emailVerifyExpiry    DateTime?
+  emailOtpAttempts     Int          @default(0) // wrong codes entered for the current email OTP
   passwordChangedAt    DateTime?    // tokens issued before this are rejected
   lastLogin            DateTime?
+  activeSessionId      String?      // learners: only the session with this id is accepted (one device at a time)
   guardianEmail        String?
   guardianPhone        String?
   createdById          String?

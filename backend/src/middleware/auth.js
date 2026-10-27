@@ -26,6 +26,7 @@ const authenticate = async (req, res, next) => {
         avatar: true,
         mustChangePassword: true,
         passwordChangedAt: true,
+        activeSessionId: true,
       },
     });
 
@@ -42,6 +43,11 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', message: 'Session expired. Please login again.' });
     }
 
+    // Learners are signed in on one device at a time; a newer login ends this session
+    if (user.role === 'STUDENT' && user.activeSessionId && decoded.sid !== user.activeSessionId) {
+      return res.status(401).json({ success: false, code: 'SESSION_REPLACED', message: 'You signed in on another device, so this session was ended.' });
+    }
+
     const path = req.originalUrl.split('?')[0];
     if (user.mustChangePassword && !MUST_CHANGE_ALLOWED.includes(path)) {
       return res.status(403).json({
@@ -51,8 +57,9 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    const { passwordChangedAt, ...safeUser } = user;
+    const { passwordChangedAt, activeSessionId, ...safeUser } = user;
     req.user = safeUser;
+    req.sessionId = decoded.sid;
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

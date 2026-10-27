@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { getActiveEnrollment, recomputeCourseProgress } = require('../services/progress');
+const { logActivity } = require('./auditController');
 const {
   uploadToS3, generateS3Key, deleteFromS3, getPresignedUploadUrl, getPresignedDownloadUrl,
   isAwsConfigured, createMultipartUpload, getUploadPartUrl, completeMultipartUpload, abortMultipartUpload,
@@ -444,6 +445,7 @@ const getContentForStudent = async (req, res) => {
     }
 
     const { s3Key, section, ...safe } = content;
+    if (!isAdmin) logActivity(req, 'LESSON_OPENED', { targetId: content.id, targetType: 'content', lesson: content.title, type: content.type, courseId: section.courseId });
     res.json({ success: true, data: { ...safe, courseId: section.courseId, cloudFrontUrl: streamUrl } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to get content.' });
@@ -508,6 +510,12 @@ const updateProgress = async (req, res) => {
     const course = completionChanged
       ? await recomputeCourseProgress(req.user.id, courseId)
       : (await prisma.enrollment.update({ where: { id: enrollment.id }, data: { lastAccessedAt: new Date() } }), null);
+    if (completionChanged) {
+      logActivity(req, isCompleted === true ? 'LESSON_COMPLETED' : 'LESSON_UNMARKED', {
+        targetId: id, targetType: 'content', type: content.type, courseId,
+        ...(course?.certificate && { certificateIssued: true }),
+      });
+    }
 
     res.json({
       success: true,

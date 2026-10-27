@@ -444,7 +444,7 @@ const adminGetPayments = async (req, res) => {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { firstName: true, lastName: true, email: true } },
+          user: { select: { firstName: true, lastName: true, email: true, username: true } },
           course: { select: { title: true } },
         },
       }),

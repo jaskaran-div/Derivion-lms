@@ -26,6 +26,8 @@ const prisma = {
   user: {
     findUnique: async ({ where, select }) => { const u = db.users.find((x) => x.id === where.id || x.email === where.email); return u ? pick(u, select) : null; },
     findFirst: async ({ where }) => db.users.find((u) => {
+      // isSchoolLearner: { id, role, OR: [school links…] }
+      if (where.id && where.role) return u.id === where.id && u.role === where.role && Boolean(u.createdById || u.schoolId);
       if (where.OR) return where.OR.some((c) => (c.email && u.email.toLowerCase() === c.email.equals.toLowerCase()) || (c.username && u.username === c.username.equals));
       if (where.resetPasswordToken) return u.resetPasswordToken === where.resetPasswordToken && u.resetPasswordExpiry > where.resetPasswordExpiry.gt;
       return false;
@@ -41,9 +43,17 @@ const prisma = {
 };
 
 installMockModule(require.resolve('../src/config/database'), prisma);
+// The last emailed one-time code, captured from the OTP email template
+let lastOtp = null;
 installMockModule(require.resolve('../src/config/email'), {
-  sendEmail: async () => {},
-  emailTemplates: new Proxy({}, { get: () => () => ({ subject: 's', html: 'h' }) }),
+  sendEmail: async () => true,
+  emailConfigured: () => true,
+  emailTemplates: new Proxy({}, {
+    get: (_, name) => (...args) => {
+      if (name === 'emailOtp') lastOtp = args[1];
+      return { subject: 's', html: 'h' };
+    },
+  }),
 });
 
 const { authenticate } = require('../src/middleware/auth');
@@ -119,18 +129,65 @@ describe('sessions and passwords', () => {
     assert.equal(replay.statusCode, 401);
   });
 
-  it('blocks login for self-registered accounts awaiting email verification only when required', async () => {
-    db.users[0].emailVerifyToken = 'pending-hash';
-    storedSettings.enrollment = { requireEmailVerification: true };
+  const login = async () => {
     const res = response();
     await auth.login({ body: { email: 'a@example.com', password: 'old-password' }, ip: '::1', headers: {} }, res);
-    assert.equal(res.statusCode, 403);
-    assert.equal(res.body.code, 'EMAIL_NOT_VERIFIED');
+    return res;
+  };
 
-    // Accounts that never started verification (e.g. created by a teacher) are not locked out
-    db.users[0].emailVerifyToken = null;
+  it('asks individual learners for an emailed code before their first sign-in', async () => {
+    const first = await login();
+    assert.equal(first.statusCode, 200);
+    assert.equal(first.body.data.otpRequired, true);
+    assert.equal(first.body.data.accessToken, undefined);
+    assert.match(lastOtp, /^\d{6}$/);
+
+    const wrong = response();
+    await auth.verifyEmailOtp({ body: { otpToken: first.body.data.otpToken, otp: lastOtp === '000000' ? '111111' : '000000' }, ip: '::1', headers: {} }, wrong);
+    assert.equal(wrong.statusCode, 400);
+
     const ok = response();
-    await auth.login({ body: { email: 'a@example.com', password: 'old-password' }, ip: '::1', headers: {} }, ok);
+    await auth.verifyEmailOtp({ body: { otpToken: first.body.data.otpToken, otp: lastOtp }, ip: '::1', headers: {} }, ok);
     assert.equal(ok.statusCode, 200);
+    assert.ok(ok.body.data.accessToken);
+    assert.equal(db.users[0].isEmailVerified, true);
+
+    // Verified once: later sign-ins go straight through
+    const again = await login();
+    assert.ok(again.body.data.accessToken);
+  });
+
+  it('never asks school learners for an email code', async () => {
+    db.users[0].createdById = 'teacher-1';
+    const res = await login();
+    assert.equal(res.statusCode, 200);
+    assert.ok(res.body.data.accessToken);
+    assert.equal(res.body.data.user.learnerType, 'SCHOOL');
+  });
+
+  it('keeps a learner signed in on one device only', async () => {
+    db.users[0].createdById = 'teacher-1';
+    const deviceA = await login();
+    const deviceB = await login();
+
+    const a = await runAuth(deviceA.body.data.accessToken);
+    assert.equal(a.passed, false);
+    assert.equal(a.res.statusCode, 401);
+    assert.equal(a.res.body.code, 'SESSION_REPLACED');
+    assert.equal((await runAuth(deviceB.body.data.accessToken)).passed, true);
+
+    // Device A cannot get new tokens with its refresh cookie either
+    const refresh = response();
+    await auth.refreshToken({ cookies: { [auth.REFRESH_COOKIE]: deviceA.cookies[auth.REFRESH_COOKIE] } }, refresh);
+    assert.equal(refresh.statusCode, 401);
+    assert.equal(refresh.body.code, 'SESSION_REPLACED');
+  });
+
+  it('does not let learners edit their own profile', async () => {
+    const res = response();
+    await auth.updateProfile({ user: { id: 'u1', role: 'STUDENT' }, body: { firstName: 'X' } }, res);
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.code, 'PROFILE_LOCKED');
+    assert.equal(db.users[0].firstName, 'A');
   });
 });

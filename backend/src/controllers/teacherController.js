@@ -1,6 +1,33 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/database');
 const { generateUsername, generatePassword, studentEmail } = require('../utils/credentials');
+const { teacherSchoolId, linkLearnerToSchool } = require('../services/learners');
+
+// Courses a teacher can use: those assigned to their school(s) or classes.
+// A teacher with no assignments yet keeps access to the whole published catalog.
+const teacherCourseWhere = async (teacherId) => {
+  const [memberships, classLinks] = await Promise.all([
+    prisma.schoolMembership.findMany({ where: { userId: teacherId, isActive: true }, select: { schoolId: true } }),
+    prisma.class.findMany({
+      where: { OR: [{ teacherId }, { teacherAssignments: { some: { teacherId } } }] },
+      select: { id: true, schoolId: true },
+    }),
+  ]);
+  const schoolIds = [...new Set([...memberships.map((m) => m.schoolId), ...classLinks.map((c) => c.schoolId)])];
+  const classIds = classLinks.map((c) => c.id);
+  const scoped = {
+    status: 'PUBLISHED',
+    OR: [
+      { schoolAssignments: { some: { schoolId: { in: schoolIds } } } },
+      { classAssignments: { some: { classId: { in: classIds } } } },
+    ],
+  };
+  const hasAssignments = (schoolIds.length || classIds.length) && await prisma.course.count({ where: scoped });
+  return hasAssignments ? scoped : { status: 'PUBLISHED' };
+};
+
+const canUseCourse = async (teacherId, courseId) =>
+  Boolean(courseId) && Boolean(await prisma.course.findFirst({ where: { id: courseId, ...(await teacherCourseWhere(teacherId)) }, select: { id: true } }));
 
 const studentSelect = {
   id: true,
@@ -16,10 +43,11 @@ const studentSelect = {
   createdAt: true,
   lastLogin: true,
   createdById: true,
-  _count: { select: { enrollments: true } },
+  _count: { select: { enrollments: true, certificates: true } },
   enrollments: {
     include: { course: { select: { id: true, title: true, slug: true } } },
   },
+  studentBatches: { select: { class: { select: { id: true, name: true, section: true } } } },
 };
 
 const ensureOwnStudent = async (teacherId, studentId) => {
@@ -45,7 +73,7 @@ const getDashboard = async (req, res) => {
     ]);
 
     const publishedCourses = await prisma.course.findMany({
-      where: { status: 'PUBLISHED' },
+      where: await teacherCourseWhere(teacherId),
       select: { id: true, title: true, thumbnail: true, totalStudents: true },
       orderBy: { title: 'asc' },
       take: 10,
@@ -152,9 +180,13 @@ const createStudent = async (req, res) => {
       select: studentSelect,
     });
 
+    // The new learner belongs to the teacher's school, so the school sees them
+    await linkLearnerToSchool(student.id, await teacherSchoolId(req.user.id));
+
     const enrolled = [];
     if (Array.isArray(courseIds) && courseIds.length) {
       for (const courseId of courseIds) {
+        if (!(await canUseCourse(req.user.id, courseId))) continue;
         try {
           await prisma.enrollment.create({ data: { userId: student.id, courseId } });
           await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
@@ -223,6 +255,9 @@ const enrollStudent = async (req, res) => {
     const student = await ensureOwnStudent(req.user.id, req.params.id);
     if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
     const { courseId } = req.body;
+    if (!(await canUseCourse(req.user.id, courseId))) {
+      return res.status(403).json({ success: false, message: 'This course is not available to your school.' });
+    }
     const existing = await prisma.enrollment.findUnique({
       where: { userId_courseId: { userId: student.id, courseId } },
     });
@@ -238,13 +273,129 @@ const enrollStudent = async (req, res) => {
 const listCourses = async (req, res) => {
   try {
     const courses = await prisma.course.findMany({
-      where: { status: 'PUBLISHED' },
+      where: await teacherCourseWhere(req.user.id),
       select: { id: true, title: true, slug: true, thumbnail: true, level: true },
       orderBy: { title: 'asc' },
     });
     res.json({ success: true, data: courses });
   } catch {
     res.status(500).json({ success: false, message: 'Failed to fetch courses.' });
+  }
+};
+
+// GET /api/teacher/my-courses — the courses this teacher can use, with how their own students are doing in each
+const getMyCourses = async (req, res) => {
+  try {
+    const teacherId = req.user.id;
+    const courses = await prisma.course.findMany({
+      where: await teacherCourseWhere(teacherId),
+      orderBy: { title: 'asc' },
+      select: {
+        id: true, title: true, slug: true, thumbnail: true, shortDesc: true, level: true, language: true,
+        totalLessons: true, totalDuration: true, updatedAt: true,
+        category: { select: { name: true } },
+        schoolAssignments: { select: { school: { select: { name: true } } } },
+        enrollments: {
+          where: { user: { createdById: teacherId, role: 'STUDENT' }, status: { not: 'REFUNDED' } },
+          select: { status: true, progressPercent: true },
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: courses.map(({ enrollments, schoolAssignments, ...c }) => ({
+        ...c,
+        assignedVia: schoolAssignments.map((a) => a.school.name),
+        myStudents: enrollments.length,
+        completed: enrollments.filter((e) => e.status === 'COMPLETED').length,
+        averageProgress: enrollments.length
+          ? enrollments.reduce((s, e) => s + Number(e.progressPercent), 0) / enrollments.length
+          : 0,
+      })),
+    });
+  } catch (error) {
+    console.error('Teacher my courses error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch courses.' });
+  }
+};
+
+// GET /api/teacher/students/:id — full profile of one of the teacher's students
+const getStudent = async (req, res) => {
+  try {
+    const student = await prisma.user.findFirst({
+      where: { id: req.params.id, createdById: req.user.id, role: 'STUDENT' },
+      select: {
+        id: true, firstName: true, lastName: true, username: true, phone: true,
+        guardianEmail: true, guardianPhone: true, isActive: true, createdAt: true, lastLogin: true,
+        schoolMemberships: { select: { school: { select: { name: true, code: true } } } },
+        studentBatches: { select: { class: { select: { name: true, section: true } } } },
+        enrollments: {
+          orderBy: { enrolledAt: 'desc' },
+          select: {
+            id: true, status: true, progressPercent: true, enrolledAt: true, completedAt: true, lastAccessedAt: true,
+            course: { select: { id: true, title: true, slug: true, thumbnail: true } },
+          },
+        },
+        certificates: {
+          orderBy: { issuedAt: 'desc' },
+          select: { id: true, certificateId: true, certificateNo: true, issuedAt: true, course: { select: { id: true, title: true } } },
+        },
+        assessmentAttempts: {
+          where: { status: 'SUBMITTED' },
+          orderBy: { completedAt: 'desc' },
+          take: 20,
+          select: { id: true, score: true, isPassed: true, completedAt: true, assessment: { select: { title: true } } },
+        },
+      },
+    });
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
+
+    const [lessons, watch, activity] = await Promise.all([
+      prisma.contentProgress.findMany({
+        where: { userId: student.id, isCompleted: true },
+        select: { content: { select: { section: { select: { courseId: true } } } } },
+      }),
+      prisma.contentProgress.aggregate({ where: { userId: student.id }, _sum: { watchedSeconds: true } }),
+      prisma.auditLog.findMany({
+        where: { userId: student.id, action: { in: ['LOGIN', 'LOGOUT', 'ACTIVITY'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+        select: { id: true, action: true, details: true, createdAt: true },
+      }),
+    ]);
+    const lessonsByCourse = {};
+    for (const l of lessons) {
+      const id = l.content.section.courseId;
+      lessonsByCourse[id] = (lessonsByCourse[id] || 0) + 1;
+    }
+    const totals = await prisma.content.groupBy({
+      by: ['sectionId'],
+      where: { isPublished: true, section: { isPublished: true, courseId: { in: student.enrollments.map((e) => e.course.id) } } },
+      _count: { _all: true },
+    });
+    const sections = await prisma.section.findMany({ where: { id: { in: totals.map((t) => t.sectionId) } }, select: { id: true, courseId: true } });
+    const courseOf = Object.fromEntries(sections.map((s) => [s.id, s.courseId]));
+    const lessonTotals = {};
+    for (const t of totals) lessonTotals[courseOf[t.sectionId]] = (lessonTotals[courseOf[t.sectionId]] || 0) + t._count._all;
+
+    res.json({
+      success: true,
+      data: {
+        ...student,
+        enrollments: student.enrollments.map((e) => ({
+          ...e,
+          lessonsCompleted: lessonsByCourse[e.course.id] || 0,
+          lessonsTotal: lessonTotals[e.course.id] || 0,
+          certificate: student.certificates.find((c) => c.course.id === e.course.id) || null,
+        })),
+        watchSeconds: watch._sum.watchedSeconds || 0,
+        recentActivity: activity,
+      },
+    });
+  } catch (error) {
+    console.error('Teacher get student error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load student.' });
   }
 };
 
@@ -284,5 +435,7 @@ module.exports = {
   deleteStudent,
   enrollStudent,
   listCourses,
+  getMyCourses,
+  getStudent,
   generatePassword,
 };

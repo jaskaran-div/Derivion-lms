@@ -1,7 +1,12 @@
 /**
  * Renders a certificate as a landscape A4 PDF and streams it to `out` (an HTTP response or any writable).
  */
+const fs = require('fs');
+const path = require('path');
 const PDFDocument = require('pdfkit');
+
+const LOGO_PATH = path.join(__dirname, '../../assets/derivion-logo.png');
+const LOGO_RATIO = 1600 / 386; // width / height of the wordmark image
 
 const BLUE = '#1d4ed8';
 const VIOLET = '#6d3df5';
@@ -22,8 +27,13 @@ const renderCertificatePdf = (cert, out, { siteName = 'Derivion LMS', verifyUrl 
   doc.rect(24, 24, W - 48, 10).fill(BLUE);
   doc.rect(24, 24, (W - 48) * 0.35, 10).fill(VIOLET);
 
-  // Brand
-  doc.fillColor(BLUE).font('Helvetica-Bold').fontSize(16).text(siteName.toUpperCase(), 0, 70, { align: 'center', characterSpacing: 2 });
+  // Brand: the Derivion wordmark (falls back to the site name if the image is missing)
+  if (fs.existsSync(LOGO_PATH)) {
+    const logoH = 34;
+    doc.image(LOGO_PATH, (W - logoH * LOGO_RATIO) / 2, 58, { height: logoH });
+  } else {
+    doc.fillColor(BLUE).font('Helvetica-Bold').fontSize(16).text(siteName.toUpperCase(), 0, 70, { align: 'center', characterSpacing: 2 });
+  }
 
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(38).text('Certificate of Completion', 0, 112, { align: 'center' });
 

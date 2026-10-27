@@ -112,6 +112,22 @@ const emailTemplates = {
       </body></html>`,
   }),
 
+  emailOtp: (rawFirstName, otp, firstName = esc(rawFirstName)) => ({
+    subject: `${otp} is your ${process.env.APP_NAME} verification code`,
+    html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+      <body style="font-family: Arial, sans-serif; background: #f4f5f8; margin: 0; padding: 0;">
+        <div style="max-width: 560px; margin: 40px auto; background: #fff; border-radius: 16px; overflow: hidden;">
+          <div style="background: #0f1115; padding: 28px; text-align: center; color: #fff; font-size: 22px; font-weight: 700;">${esc(process.env.APP_NAME)}</div>
+          <div style="padding: 32px; color: #343a46; line-height: 1.7; font-size: 15px;">
+            <p>Hi ${firstName},</p>
+            <p>Use this code to verify your email address. It expires in 10 minutes.</p>
+            <p style="text-align: center; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #0f1115; margin: 24px 0;">${esc(otp)}</p>
+            <p style="color: #6b7280; font-size: 13px;">If you did not try to sign in, you can ignore this email and consider changing your password.</p>
+          </div>
+        </div>
+      </body></html>`,
+  }),
+
   passwordReset: (rawFirstName, resetUrl, firstName = esc(rawFirstName)) => ({
     subject: `🔒 Password Reset - ${process.env.APP_NAME}`,
     html: `
@@ -152,6 +168,9 @@ const emailTemplates = {
   }),
 };
 
+const emailConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER);
+
+// Resolves true when the email was handed to the mail server
 const sendEmail = async ({ to, subject, html }) => {
   try {
     await transporter.sendMail({
@@ -160,10 +179,12 @@ const sendEmail = async ({ to, subject, html }) => {
       subject,
       html,
     });
+    return true;
   } catch (error) {
     console.error('Email sending failed:', error);
     // Don't throw - email failures shouldn't break the request
+    return false;
   }
 };
 
-module.exports = { sendEmail, emailTemplates };
+module.exports = { sendEmail, emailTemplates, emailConfigured };

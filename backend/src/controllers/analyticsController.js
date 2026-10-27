@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const { schoolStudentWhere } = require('../services/learners');
 
 // GET /api/admin/analytics/overview
 const getOverview = async (req, res) => {
@@ -36,8 +37,7 @@ const getOverview = async (req, res) => {
       prisma.$queryRaw`
         SELECT
           TO_CHAR("enrolledAt", 'Mon YYYY') as month,
-          DATE_TRUNC('month', "enrolledAt") as monthDate,
-          COUNT(*) as count
+          COUNT(*)::int as count
         FROM enrollments
         WHERE "enrolledAt" >= NOW() - INTERVAL '6 months'
         GROUP BY TO_CHAR("enrolledAt", 'Mon YYYY'), DATE_TRUNC('month', "enrolledAt")
@@ -48,8 +48,8 @@ const getOverview = async (req, res) => {
       prisma.$queryRaw`
         SELECT
           TO_CHAR("createdAt", 'Mon YYYY') as month,
-          SUM(amount) as revenue,
-          COUNT(*) as count
+          SUM(amount)::float as revenue,
+          COUNT(*)::int as count
         FROM payments
         WHERE status = 'SUCCESS'
           AND "createdAt" >= NOW() - INTERVAL '6 months'
@@ -77,7 +77,7 @@ const getOverview = async (req, res) => {
 
       // Students who haven't started anything
       prisma.$queryRaw`
-        SELECT COUNT(*) as count
+        SELECT COUNT(*)::int as count
         FROM users u
         WHERE u.role = 'STUDENT'
           AND NOT EXISTS (
@@ -259,17 +259,11 @@ const exportStudentsCSV = async (req, res) => {
         select: { studentId: true },
       });
       userIds = batches.map((b) => b.studentId);
-    } else if (schoolId) {
-      const memberships = await prisma.schoolMembership.findMany({
-        where: { schoolId, role: 'STUDENT' },
-        select: { userId: true },
-      });
-      userIds = memberships.map((m) => m.userId);
     }
 
     const students = await prisma.user.findMany({
       where: {
-        role: 'STUDENT',
+        ...(schoolId && !classId ? schoolStudentWhere(schoolId) : { role: 'STUDENT' }),
         ...(userIds && { id: { in: userIds } }),
       },
       select: {

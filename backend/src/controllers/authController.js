@@ -2,18 +2,20 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const prisma = require('../config/database');
-const { sendEmail, emailTemplates } = require('../config/email');
+const { sendEmail, emailTemplates, emailConfigured } = require('../config/email');
 const { logAudit } = require('./auditController');
 const { getSettings } = require('../services/settings');
+const { isSchoolLearner } = require('../services/learners');
 
 const REFRESH_COOKIE = 'lms_refresh';
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-const generateTokens = (userId, role) => {
-  const accessToken = jwt.sign({ userId, role }, process.env.JWT_SECRET, {
+// sid ties a learner's tokens to their one active session (see activeSessionId)
+const generateTokens = (userId, role, sid) => {
+  const accessToken = jwt.sign({ userId, role, ...(sid && { sid }) }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '15m',
   });
-  const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, {
+  const refreshToken = jwt.sign({ userId, ...(sid && { sid }) }, process.env.JWT_REFRESH_SECRET, {
     expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   });
   return { accessToken, refreshToken };
@@ -44,6 +46,10 @@ const clearRefreshCookie = (res) => {
 // First configured client origin (CLIENT_URL may be a comma-separated list)
 const clientUrl = () => (process.env.CLIENT_URL || 'http://localhost:3000').split(',')[0].trim();
 
+// Learners may be signed in on one device only: tokens from an older session are rejected
+const sessionReplaced = (user, decoded) =>
+  user.role === 'STUDENT' && Boolean(user.activeSessionId) && decoded.sid !== user.activeSessionId;
+
 // A token issued before the last password change is no longer valid
 const issuedBeforePasswordChange = (decoded, passwordChangedAt) =>
   Boolean(passwordChangedAt) && decoded.iat * 1000 < new Date(passwordChangedAt).getTime() - 1000;
@@ -58,6 +64,57 @@ const sendVerificationEmail = async (user) => {
   const { subject, html } = emailTemplates.emailVerification(user.firstName, verifyUrl);
   await sendEmail({ to: user.email, subject, html });
 };
+
+// ==================== EMAIL OTP ====================
+// Individual learners confirm their email with a 6-digit code before their first sign-in.
+// School learners are skipped: their accounts are issued by the school and often have no real inbox.
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_RESEND_GAP_MS = 60 * 1000;
+// A separate secret so an OTP session token can never be used as an access token
+const otpSecret = () => `${process.env.JWT_SECRET}:email-otp`;
+
+const signOtpToken = (userId) => jwt.sign({ userId, purpose: 'email-otp' }, otpSecret(), { expiresIn: '30m' });
+const readOtpToken = (token) => {
+  try {
+    const decoded = jwt.verify(String(token || ''), otpSecret());
+    return decoded.purpose === 'email-otp' ? decoded.userId : null;
+  } catch {
+    return null;
+  }
+};
+
+const otpHash = (userId, otp) => hashToken(`${userId}:${otp}`);
+
+const maskEmail = (email) => email.replace(/^(.{2})[^@]*(@.*)$/, (_, a, b) => `${a}•••${b}`);
+
+const needsEmailOtp = async (user) =>
+  user.role === 'STUDENT' && !user.isEmailVerified && emailConfigured() && !(await isSchoolLearner(user.id));
+
+const sendEmailOtp = async (user) => {
+  const otp = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { emailVerifyToken: otpHash(user.id, otp), emailVerifyExpiry: new Date(Date.now() + OTP_TTL_MS), emailOtpAttempts: 0 },
+  });
+  const { subject, html } = emailTemplates.emailOtp(user.firstName, otp);
+  return sendEmail({ to: user.email, subject, html });
+};
+
+// Starts the OTP step: emails a code and tells the client to ask for it
+const requireEmailOtp = async (res, user, status = 200) => {
+  if (!(await sendEmailOtp(user))) {
+    return res.status(503).json({ success: false, message: 'We could not send your verification code. Please try again in a few minutes.' });
+  }
+  return res.status(status).json({
+    success: true,
+    message: `We sent a 6-digit verification code to ${maskEmail(user.email)}.`,
+    data: { otpRequired: true, otpToken: signOtpToken(user.id), email: maskEmail(user.email) },
+  });
+};
+
+const learnerType = async (user) =>
+  user.role !== 'STUDENT' ? null : (await isSchoolLearner(user.id)) ? 'SCHOOL' : 'INDIVIDUAL';
 
 const publicUser = (user) => ({
   id: user.id,
@@ -94,30 +151,33 @@ const register = async (req, res) => {
 
     await logAudit({ userId: user.id, action: 'USER_CREATED', targetId: user.id, targetType: 'user', req });
 
-    if (enrollment.requireEmailVerification) {
-      await sendVerificationEmail(user);
-      return res.status(201).json({
-        success: true,
-        message: 'Account created. Check your email to verify your address before logging in.',
-        data: { requiresVerification: true },
-      });
-    }
+    if (await needsEmailOtp(user)) return requireEmailOtp(res, user, 201);
 
     const { subject, html } = emailTemplates.welcome(firstName);
     sendEmail({ to: email, subject, html });
 
-    const { accessToken, refreshToken } = generateTokens(user.id, user.role);
-    setRefreshCookie(res, refreshToken);
-
-    res.status(201).json({
-      success: true,
-      message: 'Registration successful.',
-      data: { user: publicUser(user), accessToken },
-    });
+    return completeLogin(req, res, user, 201);
   } catch (error) {
     console.error('Register error:', error);
     res.status(500).json({ success: false, message: 'Registration failed.' });
   }
+};
+
+// Issues the session for a fully authenticated user. Learners get a new session id, which signs out their other device.
+const completeLogin = async (req, res, user, status = 200) => {
+  const sid = user.role === 'STUDENT' ? crypto.randomUUID() : undefined;
+  await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date(), ...(sid && { activeSessionId: sid }) } });
+
+  const { accessToken, refreshToken } = generateTokens(user.id, user.role, sid);
+  setRefreshCookie(res, refreshToken);
+
+  await logAudit({ userId: user.id, action: 'LOGIN', details: { success: true }, req });
+
+  return res.status(status).json({
+    success: true,
+    message: 'Login successful.',
+    data: { user: { ...publicUser(user), learnerType: await learnerType(user) }, accessToken },
+  });
 };
 
 // POST /api/auth/login
@@ -151,32 +211,78 @@ const login = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Account deactivated. Contact support.' });
     }
 
-    // Only accounts that started email verification (self-registered while it was required) are blocked;
-    // admin/teacher-created and older accounts are never locked out by turning the setting on.
-    const { enrollment } = await getSettings();
-    if (enrollment.requireEmailVerification && !user.isEmailVerified && user.emailVerifyToken) {
-      return res.status(403).json({
-        success: false,
-        code: 'EMAIL_NOT_VERIFIED',
-        message: 'Please verify your email address first. Check your inbox for the verification link.',
-      });
-    }
+    // Individual learners confirm their email with a one-time code first
+    if (await needsEmailOtp(user)) return requireEmailOtp(res, user);
 
-    await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date() } });
-
-    const { accessToken, refreshToken } = generateTokens(user.id, user.role);
-    setRefreshCookie(res, refreshToken);
-
-    await logAudit({ userId: user.id, action: 'LOGIN', details: { success: true }, req });
-
-    res.json({
-      success: true,
-      message: 'Login successful.',
-      data: { user: publicUser(user), accessToken },
-    });
+    return completeLogin(req, res, user);
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ success: false, message: 'Login failed.' });
+  }
+};
+
+// POST /api/auth/verify-otp { otpToken, otp } — second login step for individual learners
+const verifyEmailOtp = async (req, res) => {
+  try {
+    const userId = readOtpToken(req.body.otpToken);
+    const user = userId && await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) {
+      return res.status(400).json({ success: false, code: 'OTP_SESSION_EXPIRED', message: 'Your verification session expired. Please sign in again.' });
+    }
+    if (user.isEmailVerified) return completeLogin(req, res, user);
+
+    if (!user.emailVerifyExpiry || user.emailVerifyExpiry < new Date()) {
+      return res.status(400).json({ success: false, message: 'This code has expired. Request a new one.' });
+    }
+    if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
+      return res.status(429).json({ success: false, message: 'Too many incorrect codes. Request a new one.' });
+    }
+
+    const otp = String(req.body.otp || '').replace(/\D/g, '');
+    if (otp.length !== 6 || otpHash(user.id, otp) !== user.emailVerifyToken) {
+      const { emailOtpAttempts } = await prisma.user.update({
+        where: { id: user.id },
+        data: { emailOtpAttempts: { increment: 1 } },
+        select: { emailOtpAttempts: true },
+      });
+      const left = Math.max(0, OTP_MAX_ATTEMPTS - emailOtpAttempts);
+      return res.status(400).json({
+        success: false,
+        message: left ? `Incorrect code. ${left} attempt${left === 1 ? '' : 's'} left.` : 'Too many incorrect codes. Request a new one.',
+      });
+    }
+
+    const verified = await prisma.user.update({
+      where: { id: user.id },
+      data: { isEmailVerified: true, emailVerifyToken: null, emailVerifyExpiry: null, emailOtpAttempts: 0 },
+    });
+    await logAudit({ userId: user.id, action: 'ACTIVITY', details: { event: 'EMAIL_VERIFIED', method: 'otp' }, req });
+    const { subject, html } = emailTemplates.welcome(user.firstName);
+    sendEmail({ to: user.email, subject, html });
+
+    return completeLogin(req, res, verified);
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(500).json({ success: false, message: 'Failed to verify the code.' });
+  }
+};
+
+// POST /api/auth/resend-otp { otpToken }
+const resendEmailOtp = async (req, res) => {
+  try {
+    const userId = readOtpToken(req.body.otpToken);
+    const user = userId && await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive || user.isEmailVerified) {
+      return res.status(400).json({ success: false, code: 'OTP_SESSION_EXPIRED', message: 'Your verification session expired. Please sign in again.' });
+    }
+    const sentAt = user.emailVerifyExpiry ? user.emailVerifyExpiry.getTime() - OTP_TTL_MS : 0;
+    if (Date.now() - sentAt < OTP_RESEND_GAP_MS) {
+      return res.status(429).json({ success: false, message: 'Please wait a minute before requesting another code.' });
+    }
+    return requireEmailOtp(res, user);
+  } catch (error) {
+    console.error('Resend OTP error:', error);
+    res.status(500).json({ success: false, message: 'Failed to send a new code.' });
   }
 };
 
@@ -198,12 +304,17 @@ const refreshToken = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, role: true, isActive: true, passwordChangedAt: true },
+      select: { id: true, role: true, isActive: true, passwordChangedAt: true, activeSessionId: true },
     });
 
     if (!user || !user.isActive || issuedBeforePasswordChange(decoded, user.passwordChangedAt)) {
       clearRefreshCookie(res);
       return res.status(401).json({ success: false, message: 'Session expired. Please login again.' });
+    }
+
+    if (sessionReplaced(user, decoded)) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ success: false, code: 'SESSION_REPLACED', message: 'You signed in on another device, so this session was ended.' });
     }
 
     // Rotate: revoke the old token, issue a new pair
@@ -213,7 +324,7 @@ const refreshToken = async (req, res) => {
       update: {},
     });
 
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user.id, user.role);
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(user.id, user.role, decoded.sid);
     setRefreshCookie(res, newRefreshToken);
 
     res.json({ success: true, data: { accessToken } });
@@ -238,6 +349,10 @@ const logout = async (req, res) => {
             create: { userId, tokenHash: hashToken(token), expiresAt },
             update: {},
           });
+          // Frees the learner's session slot (only if this device still holds it)
+          if (decoded?.sid) {
+            await prisma.user.updateMany({ where: { id: userId, activeSessionId: decoded.sid }, data: { activeSessionId: null } });
+          }
         }
       } catch { /* ignore */ }
     }
@@ -381,15 +496,30 @@ const getMe = async (req, res) => {
         },
       },
     });
-    res.json({ success: true, data: user });
+    res.json({ success: true, data: { ...user, learnerType: await learnerType(user) } });
   } catch {
     res.status(500).json({ success: false, message: 'Failed to fetch profile.' });
   }
 };
 
 // PUT /api/auth/me
+// Learners cannot change their own details: school learners ask their school, individual learners contact support
+const learnerEditBlocked = async (req, res) => {
+  if (req.user.role !== 'STUDENT') return false;
+  const school = await isSchoolLearner(req.user.id);
+  res.status(403).json({
+    success: false,
+    code: 'PROFILE_LOCKED',
+    message: school
+      ? 'Your details are managed by your school. Ask your teacher to update them.'
+      : 'To change your details, email us or message the team from Support Chat.',
+  });
+  return true;
+};
+
 const updateProfile = async (req, res) => {
   try {
+    if (await learnerEditBlocked(req, res)) return;
     const { firstName, lastName, phone } = req.body;
     const data = {};
     if (typeof firstName === 'string' && firstName.trim()) data.firstName = firstName.trim().slice(0, 100);
@@ -415,6 +545,11 @@ const changePassword = async (req, res) => {
     }
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
+    // School learners' passwords are reset by their teacher (except the forced first change)
+    if (user.role === 'STUDENT' && !user.mustChangePassword && await isSchoolLearner(user.id)) {
+      return res.status(403).json({ success: false, code: 'PROFILE_LOCKED', message: 'Your password is managed by your school. Ask your teacher to reset it.' });
+    }
+
     const isMatch = await bcrypt.compare(String(currentPassword || ''), user.password);
     if (!isMatch) {
       return res.status(400).json({ success: false, message: 'Current password is incorrect.' });
@@ -432,7 +567,7 @@ const changePassword = async (req, res) => {
     await logAudit({ userId: req.user.id, action: 'PASSWORD_CHANGE', details: { method: 'self_change' }, req });
 
     // Tokens issued from now on are valid; give this device a fresh pair
-    const { accessToken, refreshToken } = generateTokens(user.id, user.role);
+    const { accessToken, refreshToken } = generateTokens(user.id, user.role, req.sessionId);
     setRefreshCookie(res, refreshToken);
 
     res.json({ success: true, message: 'Password changed successfully. Other devices have been signed out.', data: { accessToken } });
@@ -443,7 +578,8 @@ const changePassword = async (req, res) => {
 
 module.exports = {
   register, login, refreshToken, logout,
+  verifyEmailOtp, resendEmailOtp,
   forgotPassword, resetPassword, verifyEmail, resendVerification,
-  getMe, updateProfile, changePassword,
-  hashToken, issuedBeforePasswordChange, REFRESH_COOKIE,
+  getMe, updateProfile, changePassword, learnerEditBlocked,
+  hashToken, issuedBeforePasswordChange, sessionReplaced, REFRESH_COOKIE,
 };
