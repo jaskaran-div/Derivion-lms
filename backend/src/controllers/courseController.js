@@ -182,23 +182,70 @@ const createCourse = async (req, res) => {
 const updateCourse = async (req, res) => {
   try {
     const { id } = req.params;
-    const data = req.body;
+    const body = req.body || {};
 
-    if (data.emiEnabled !== undefined && typeof data.emiEnabled !== 'boolean') {
+    if (body.emiEnabled !== undefined && typeof body.emiEnabled !== 'boolean') {
       return res.status(400).json({ success: false, message: 'EMI eligibility must be a Boolean.' });
     }
 
-    if (data.price) data.price = parseFloat(data.price);
-    if (data.discountPrice) data.discountPrice = parseFloat(data.discountPrice);
-    if (data.isFree !== undefined) data.isFree = data.isFree === true || data.isFree === 'true';
+    // Only course details are editable here; slug, status and counters are managed elsewhere
+    const data = {};
+    const text = (v, max) => String(v ?? '').trim().slice(0, max);
+    const list = (v) => (Array.isArray(v) ? v.map((x) => text(x, 300)).filter(Boolean).slice(0, 50) : undefined);
+    const money = (v) => {
+      const n = parseFloat(v);
+      return Number.isFinite(n) && n >= 0 ? n : NaN;
+    };
+
+    if (body.title !== undefined) {
+      data.title = text(body.title, 200);
+      if (data.title.length < 5) return res.status(400).json({ success: false, message: 'Title must be at least 5 characters.' });
+    }
+    if (body.description !== undefined) {
+      data.description = text(body.description, 20000);
+      if (data.description.length < 20) return res.status(400).json({ success: false, message: 'Description must be at least 20 characters.' });
+    }
+    if (body.shortDesc !== undefined) data.shortDesc = text(body.shortDesc, 500) || null;
+    if (body.categoryId !== undefined) {
+      const category = await prisma.category.findUnique({ where: { id: String(body.categoryId) }, select: { id: true } });
+      if (!category) return res.status(400).json({ success: false, message: 'Select a valid category.' });
+      data.categoryId = category.id;
+    }
+    if (body.level !== undefined) data.level = text(body.level, 50) || 'Beginner';
+    if (body.language !== undefined) data.language = text(body.language, 50) || 'English';
+    if (body.price !== undefined) {
+      data.price = money(body.price);
+      if (Number.isNaN(data.price)) return res.status(400).json({ success: false, message: 'Enter a valid price.' });
+    }
+    if (body.discountPrice !== undefined) {
+      data.discountPrice = body.discountPrice === null || body.discountPrice === '' ? null : money(body.discountPrice);
+      if (Number.isNaN(data.discountPrice)) return res.status(400).json({ success: false, message: 'Enter a valid discount price.' });
+    }
+    if (body.isFree !== undefined) data.isFree = body.isFree === true || body.isFree === 'true';
+    if (body.emiEnabled !== undefined) data.emiEnabled = body.emiEnabled;
+    if (body.tags !== undefined) data.tags = list(body.tags) || [];
+    if (body.requirements !== undefined) data.requirements = list(body.requirements) || [];
+    if (body.objectives !== undefined) data.objectives = list(body.objectives) || [];
+    if (body.completionThreshold !== undefined) {
+      const t = parseInt(body.completionThreshold, 10);
+      if (!Number.isInteger(t) || t < 1 || t > 100) return res.status(400).json({ success: false, message: 'Completion threshold must be between 1 and 100.' });
+      data.completionThreshold = t;
+    }
+
+    const price = data.price ?? undefined;
+    if (data.discountPrice != null && price !== undefined && data.discountPrice > price) {
+      return res.status(400).json({ success: false, message: 'Discount price cannot be higher than the price.' });
+    }
 
     const course = await prisma.course.update({
       where: { id },
       data,
+      include: { category: true },
     });
 
     res.json({ success: true, message: 'Course updated.', data: course });
   } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ success: false, message: 'Course not found.' });
     console.error('Update course error:', error);
     res.status(500).json({ success: false, message: 'Failed to update course.' });
   }

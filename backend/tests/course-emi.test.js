@@ -158,6 +158,26 @@ describe('course EMI eligibility', () => {
     assert.equal(storedCourse.title, 'Existing title');
   });
 
+  it('edits course details but never status, slug or counters', async () => {
+    const res = response();
+    await updateCourse({
+      params: { id: storedCourse.id },
+      body: {
+        title: '  Options Trading Basics  ', level: 'Advanced', tags: ['options', ' ', 'nifty'],
+        status: 'DRAFT', slug: 'hijacked', totalStudents: 9999,
+      },
+    }, res);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(lastCourseUpdate, { title: 'Options Trading Basics', level: 'Advanced', tags: ['options', 'nifty'] });
+    assert.equal(storedCourse.status, 'PUBLISHED');
+  });
+
+  it('rejects a discount above the price', async () => {
+    const res = response();
+    await updateCourse({ params: { id: storedCourse.id }, body: { price: 100, discountPrice: 150 } }, res);
+    assert.equal(res.statusCode, 400);
+  });
+
   it('rejects an invalid course ID before querying the database', async () => {
     let queried = false;
     prisma.course.findUnique = async () => {

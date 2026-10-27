@@ -369,9 +369,19 @@ const abortContentMultipart = async (req, res) => {
 const updateContent = async (req, res) => {
   try {
     const { id } = req.params;
-    const data = req.body;
-    if (data.isFree !== undefined) data.isFree = data.isFree === true || data.isFree === 'true';
-    if (data.duration) data.duration = parseInt(data.duration);
+    const body = req.body || {};
+    // Editable lesson fields only (files and quiz links are set by their own endpoints)
+    const data = {};
+    if (body.title !== undefined) {
+      data.title = String(body.title).trim().slice(0, 200);
+      if (!data.title) return res.status(400).json({ success: false, message: 'Lesson title is required.' });
+    }
+    if (body.description !== undefined) data.description = body.description ? String(body.description).slice(0, 5000) : null;
+    if (body.externalUrl !== undefined) data.externalUrl = body.externalUrl ? String(body.externalUrl).trim().slice(0, 2000) : null;
+    if (body.isFree !== undefined) data.isFree = body.isFree === true || body.isFree === 'true';
+    if (body.isPublished !== undefined) data.isPublished = body.isPublished === true || body.isPublished === 'true';
+    if (body.duration !== undefined && Number.isFinite(parseInt(body.duration, 10))) data.duration = Math.max(0, parseInt(body.duration, 10));
+    if (body.order !== undefined && Number.isFinite(parseInt(body.order, 10))) data.order = parseInt(body.order, 10);
 
     const content = await prisma.content.update({ where: { id }, data });
 
