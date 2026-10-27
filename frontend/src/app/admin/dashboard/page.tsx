@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { mentorAPI, usersAPI } from "@/lib/api";
+import { mentorAPI, usersAPI, displayLogin } from "@/lib/api";
 import {
   Users, BookOpen, TrendingUp, Video, Plus, ChevronRight, ArrowUpRight, IndianRupee, CalendarClock,
 } from "lucide-react";
@@ -272,7 +272,7 @@ export default function AdminDashboardPage() {
                       <div className="truncate" style={{ fontWeight: 600, fontSize: 14, color: "var(--gray-900)" }}>
                         {u.firstName} {u.lastName}
                       </div>
-                      <div className="truncate" style={{ fontSize: 12, color: "var(--gray-500)" }}>{u.email}</div>
+                      <div className="truncate" style={{ fontSize: 12, color: "var(--gray-500)" }}>{displayLogin(u)}</div>
                     </div>
                     <span style={{ fontSize: 12, color: "var(--primary)", whiteSpace: "nowrap" }}>{formatDate(u.createdAt)}</span>
                   </div>
@@ -388,7 +388,7 @@ export default function AdminDashboardPage() {
                           <div className="avatar avatar-sm">{e.user.firstName[0]}{e.user.lastName[0]}</div>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: 14, color: "var(--gray-900)" }}>{e.user.firstName} {e.user.lastName}</div>
-                            <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{e.user.email}</div>
+                            <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{displayLogin(e.user)}</div>
                           </div>
                         </div>
                       </td>

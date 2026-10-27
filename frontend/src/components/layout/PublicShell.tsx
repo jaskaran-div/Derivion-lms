@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { GraduationCap } from "lucide-react";
+import BrandLogo from "./BrandLogo";
 
 // Header + canvas for visitors who are not logged in (landing page, public catalog, public course pages)
 export default function PublicShell({ children }: { children: React.ReactNode }) {
@@ -9,8 +9,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
     <div style={{ minHeight: "100vh", background: "var(--bg-card)", display: "flex", flexDirection: "column" }}>
       <header className="public-header">
         <Link href="/" className="public-brand" aria-label="Derivion home">
-          <span className="sidebar-logo-icon"><GraduationCap size={22} /></span>
-          <span className="sidebar-logo-text">Derivion</span>
+          <BrandLogo height={28} />
         </Link>
         <nav className="public-nav" aria-label="Main">
           <Link href="/courses">Courses</Link>

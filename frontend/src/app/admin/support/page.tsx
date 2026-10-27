@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
 import UniversalChat from "@/components/chat/UniversalChat";
-import { chatAPI } from "@/lib/api";
+import { chatAPI, displayLogin } from "@/lib/api";
 import toast from "react-hot-toast";
 import { MessageSquare, ListFilter } from "lucide-react";
 
@@ -134,7 +134,7 @@ export default function AdminSupportInboxPage() {
                       <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{t.user?.role}</div>
                     </td>
                     <td>
-                      <div style={{ fontSize: 13 }}>{t.user?.email}</div>
+                      <div style={{ fontSize: 13 }}>{displayLogin(t.user)}</div>
                       {t.user?.username && <div style={{ fontSize: 12 }}>ID: {t.user.username}</div>}
                       {(t.user?.phone || t.user?.guardianEmail) && (
                         <div style={{ fontSize: 12, color: "var(--gray-400)" }}>

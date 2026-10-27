@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { schoolsAPI, apiErrorMessage } from "@/lib/api";
+import { schoolsAPI, apiErrorMessage, downloadBlob } from "@/lib/api";
 import {
-  Building2, Plus, Search, Users, BookOpen, ChevronRight, MapPin, Phone, Mail, Layers, Edit, Trash2, CheckCircle, XCircle,
+  Building2, Plus, Search, Users, BookOpen, ChevronRight, MapPin, Phone, Mail, Layers, Edit, Trash2, CheckCircle, XCircle, Download, GraduationCap,
 } from "lucide-react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 
 interface School {
   id: string;
@@ -19,6 +20,8 @@ interface School {
   isActive: boolean;
   createdAt: string;
   _count: { memberships: number; classes: number; courseAssignments: number };
+  // Students include those created by the school's teachers
+  stats?: { students: number; activeStudents: number; teachers: number };
 }
 
 export default function SchoolsManagementPage() {
@@ -34,6 +37,21 @@ export default function SchoolsManagementPage() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  // Every school with its details and head-counts, as a CSV
+  const exportAll = async () => {
+    setExporting(true);
+    try {
+      const res = await schoolsAPI.exportAll();
+      downloadBlob(res.data, `schools_${new Date().toISOString().split("T")[0]}.csv`);
+      toast.success("Schools exported.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Export failed."));
+    } finally {
+      setExporting(false);
+    }
+  };
 
 
   const loadSchools = () => {
@@ -116,10 +134,16 @@ export default function SchoolsManagementPage() {
               </p>
             </div>
           </div>
-          <button className="schools-add-btn" onClick={openCreate}>
-            <Plus size={18} />
-            Add School
-          </button>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button className="schools-export-btn" onClick={exportAll} disabled={exporting || total === 0}>
+              <Download size={17} />
+              {exporting ? "Exporting…" : "Export All Schools"}
+            </button>
+            <button className="schools-add-btn" onClick={openCreate}>
+              <Plus size={18} />
+              Add School
+            </button>
+          </div>
         </div>
 
         {/* Stats bar */}
@@ -135,9 +159,9 @@ export default function SchoolsManagementPage() {
             <Users size={20} className="stat-icon stat-green" />
             <div>
               <div className="stat-value">
-                {schools.reduce((a, s) => a + s._count.memberships, 0)}
+                {schools.reduce((a, s) => a + (s.stats?.students ?? s._count.memberships), 0)}
               </div>
-              <div className="stat-label">Total Members</div>
+              <div className="stat-label">Total Students</div>
             </div>
           </div>
           <div className="schools-stat-card">
@@ -233,7 +257,11 @@ export default function SchoolsManagementPage() {
                 <div className="school-stats-row">
                   <div className="school-stat">
                     <Users size={14} />
-                    <span>{school._count.memberships} members</span>
+                    <span>{school.stats?.students ?? school._count.memberships} students</span>
+                  </div>
+                  <div className="school-stat">
+                    <GraduationCap size={14} />
+                    <span>{school.stats?.teachers ?? 0} teachers</span>
                   </div>
                   <div className="school-stat">
                     <Layers size={14} />
@@ -390,6 +418,14 @@ export default function SchoolsManagementPage() {
             transition: transform 0.15s, box-shadow 0.15s;
           }
           .schools-add-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(29, 78, 216,0.45); }
+          .schools-export-btn {
+            display: flex; align-items: center; gap: 0.5rem;
+            background: var(--card-bg, #fff); color: var(--text-primary, #0f1115);
+            border: 1px solid var(--border, #e5e7eb); padding: 0.65rem 1.1rem;
+            border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 0.9rem;
+          }
+          .schools-export-btn:hover:not(:disabled) { background: var(--hover, #f3f4f6); }
+          .schools-export-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
           .schools-stats {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

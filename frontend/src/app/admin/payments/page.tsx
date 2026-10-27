@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { apiErrorMessage, usersAPI } from "@/lib/api";
+import { apiErrorMessage, usersAPI, displayLogin } from "@/lib/api";
 import toast from "react-hot-toast";
 import { CreditCard } from "lucide-react";
 
@@ -167,7 +167,7 @@ Reason (optional):`, "");
                     <div style={{ fontWeight: 600, fontSize: 13 }}>
                       {payment.user.firstName} {payment.user.lastName}
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{payment.user.email}</div>
+                    <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{displayLogin(payment.user)}</div>
                   </div>
                 </td>
                 <td>

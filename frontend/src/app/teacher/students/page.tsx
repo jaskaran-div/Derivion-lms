@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { teacherAPI, apiErrorMessage } from "@/lib/api";
 import toast from "react-hot-toast";
-import { Plus, Pencil, Trash2, Copy, X, Search, KeyRound } from "lucide-react";
+import { Plus, Pencil, Trash2, Copy, X, Search, KeyRound, Eye, Award } from "lucide-react";
+import StudentDetailModal from "@/components/teacher/StudentDetailModal";
 
 interface Student {
   id: string;
@@ -15,7 +16,8 @@ interface Student {
   guardianPhone?: string;
   isActive: boolean;
   lastLogin?: string;
-  _count: { enrollments: number };
+  _count: { enrollments: number; certificates?: number };
+  studentBatches?: { class: { name: string; section?: string | null } }[];
   enrollments?: { course: { id: string; title: string } }[];
   report?: { averageProgress: number; completedCourses: number; watchSeconds: number; lastActive: string | null };
 }
@@ -59,6 +61,7 @@ export default function TeacherStudentsPage() {
     isActive: true,
   });
   const [saving, setSaving] = useState(false);
+  const [viewingId, setViewingId] = useState<string | null>(null);
 
   const load = useCallback(
     () =>
@@ -214,6 +217,7 @@ export default function TeacherStudentsPage() {
               <th>Guardian</th>
               <th>Courses</th>
               <th>Progress</th>
+              <th>Certificates</th>
               <th>Watch time</th>
               <th>Last active</th>
               <th>Status</th>
@@ -222,10 +226,10 @@ export default function TeacherStudentsPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9}>Loading…</td></tr>
+              <tr><td colSpan={10}>Loading…</td></tr>
             ) : students.length === 0 ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <div className="empty-state">
                     <div className="empty-state-title">No students yet</div>
                   </div>
@@ -238,7 +242,18 @@ export default function TeacherStudentsPage() {
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <div className="avatar">{(s.firstName?.[0] || "") + (s.lastName?.[0] || "")}</div>
                       <div>
-                        <div style={{ fontWeight: 600, color: "var(--gray-900)" }}>{s.firstName} {s.lastName}</div>
+                        <button
+                          type="button"
+                          onClick={() => setViewingId(s.id)}
+                          style={{ fontWeight: 600, color: "var(--gray-900)", background: "none", border: 0, padding: 0, cursor: "pointer", textAlign: "left" }}
+                        >
+                          {s.firstName} {s.lastName}
+                        </button>
+                        {s.studentBatches && s.studentBatches.length > 0 && (
+                          <div style={{ fontSize: 12, color: "var(--gray-500)" }}>
+                            {s.studentBatches.map((b) => `${b.class.name}${b.class.section ? ` ${b.class.section}` : ""}`).join(", ")}
+                          </div>
+                        )}
                         <div style={{ fontSize: 12, color: "var(--gray-400)" }}>
                           Last login: {s.lastLogin ? new Date(s.lastLogin).toLocaleDateString("en-IN") : "Never"}
                         </div>
@@ -263,6 +278,15 @@ export default function TeacherStudentsPage() {
                       <span style={{ color: "var(--gray-500)" }}>—</span>
                     )}
                   </td>
+                  <td>
+                    {(s._count?.certificates ?? 0) > 0 ? (
+                      <button className="btn btn-ghost btn-sm" onClick={() => setViewingId(s.id)} title="View and download certificates">
+                        <Award size={14} color="#d97706" /> {s._count?.certificates}
+                      </button>
+                    ) : (
+                      <span style={{ color: "var(--gray-400)" }}>0</span>
+                    )}
+                  </td>
                   <td>{s.report ? formatWatch(s.report.watchSeconds) : "—"}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{s.report?.lastActive ? timeAgo(s.report.lastActive) : "Never"}</td>
                   <td>
@@ -271,6 +295,9 @@ export default function TeacherStudentsPage() {
                     </span>
                   </td>
                   <td>
+                    <button className="btn btn-ghost btn-icon" onClick={() => setViewingId(s.id)} title="View details" aria-label={`View details for ${s.firstName} ${s.lastName}`}>
+                      <Eye size={14} />
+                    </button>
                     <button className="btn btn-ghost btn-icon" onClick={() => openEdit(s)} title="Edit">
                       <Pencil size={14} />
                     </button>
@@ -352,6 +379,10 @@ export default function TeacherStudentsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {viewingId && (
+        <StudentDetailModal studentId={viewingId} courses={courses} onClose={() => setViewingId(null)} onChanged={load} />
       )}
 
       {credentials && (

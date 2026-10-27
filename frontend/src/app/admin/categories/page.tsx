@@ -12,7 +12,8 @@ interface Category {
   slug: string;
   description?: string;
   icon?: string;
-  _count: { courses: number };
+  isActive?: boolean;
+  _count?: { courses: number };
 }
 
 export default function CategoriesPage() {
@@ -25,7 +26,8 @@ export default function CategoriesPage() {
 
 
   const fetchCategories = () => {
-    return coursesAPI.getCategories()
+    // The admin list includes course counts (the public list does not)
+    return coursesAPI.adminGetCategories()
       .then((res) => {
         setCategories(res.data.data);
       })
@@ -84,8 +86,8 @@ export default function CategoriesPage() {
       await coursesAPI.deleteCategory(id);
       toast.success("Category deleted.");
       fetchCategories();
-    } catch {
-      toast.error("Failed to delete category.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to delete category."));
     }
   };
 
@@ -135,7 +137,7 @@ export default function CategoriesPage() {
                     placeholder="📚"
                     value={formData.icon}
                     onChange={e => setFormData({ ...formData, icon: e.target.value })}
-                    maxLength={2}
+                    maxLength={8}
                   />
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: 1 }}>
                     {emojiOptions.map(emoji => (
@@ -229,7 +231,7 @@ export default function CategoriesPage() {
                   </button>
                   <button
                     className="btn btn-ghost btn-icon btn-sm"
-                    onClick={() => handleDelete(cat.id, cat.name, cat._count.courses)}
+                    onClick={() => handleDelete(cat.id, cat.name, cat._count?.courses ?? 0)}
                     style={{ color: "var(--danger)" }}
                   >
                     <Trash2 size={14} />
@@ -245,7 +247,8 @@ export default function CategoriesPage() {
                 </p>
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="badge badge-blue">{cat._count.courses} courses</span>
+                <span className="badge badge-blue">{cat._count?.courses ?? 0} {(cat._count?.courses ?? 0) === 1 ? "course" : "courses"}</span>
+                {cat.isActive === false && <span className="badge badge-gray">Hidden</span>}
               </div>
             </div>
           ))}

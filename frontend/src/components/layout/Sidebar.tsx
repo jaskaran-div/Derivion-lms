@@ -4,8 +4,10 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
+import BrandLogo from "./BrandLogo";
+import { useNavIndicators } from "./useNavIndicators";
 import {
-  LayoutDashboard, BookOpen, Users, CreditCard, Settings, LogOut, ChevronDown, GraduationCap, BarChart3, Bell, Search, MessageSquare, Award, Tag, PlusCircle, ListOrdered, Home, BookMarked, Building2, Upload, ScrollText, TrendingUp, Video, HelpCircle,
+  LayoutDashboard, BookOpen, Users, CreditCard, Settings, LogOut, ChevronDown, GraduationCap, Library, BarChart3, Bell, Search, MessageSquare, Award, Tag, PlusCircle, ListOrdered, Home, BookMarked, Building2, Upload, ScrollText, TrendingUp, Video, HelpCircle,
 } from "lucide-react";
 
 interface NavItem {
@@ -132,6 +134,11 @@ const teacherNav: NavItem[] = [
     href: "/teacher/dashboard",
   },
   {
+    label: "My Courses",
+    icon: <Library size={18} />,
+    href: "/teacher/courses",
+  },
+  {
     label: "Students",
     icon: <GraduationCap size={18} />,
     children: [
@@ -164,11 +171,14 @@ interface SidebarProps {
 export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout, isAdmin, isTeacher } = useAuthStore();
+  const { logout, isAdmin, isTeacher, user } = useAuthStore();
   const [openDropdowns, setOpenDropdowns] = useState<Set<string>>(new Set());
 
   const nav = isAdmin() ? adminNav : isTeacher() ? teacherNav : studentNav;
   const isStudentRole = !isAdmin() && !isTeacher();
+  const navHrefs = nav.flatMap((item) => (item.href ? [item.href] : (item.children || []).map((c) => c.href)));
+  const { hasUpdate, markSeen } = useNavIndicators(user?.id, pathname, navHrefs);
+  const newDot = <span className="nav-new-dot" role="status" aria-label="New updates" title="Something new here" />;
 
   // Auto-open dropdown if current path matches a child
   useEffect(() => {
@@ -204,11 +214,8 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
     <aside className={`app-sidebar ${mobileOpen ? "open" : ""}`}>
       {/* Logo */}
       <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">
-          <GraduationCap size={22} />
-        </div>
         <div style={{ minWidth: 0 }}>
-          <div className="sidebar-logo-text">Derivion</div>
+          <BrandLogo height={26} />
           {!isStudentRole && (
             <div className="sidebar-logo-badge">{isAdmin() ? "Admin" : "Teacher"}</div>
           )}
@@ -221,14 +228,16 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
 
         {nav.map((item) => {
           const childActive = item.children?.some((c) => isActive(c.href));
+          const groupHasUpdate = item.children?.some((c) => hasUpdate(c.href));
           return (
             <div key={item.label}>
               {item.href ? (
-                <Link href={item.href} onClick={onClose}>
+                <Link href={item.href} onClick={() => { markSeen(item.href!); onClose?.(); }}>
                   <div className={`sidebar-nav-item ${isActive(item.href) ? "active" : ""}`}>
                     <span className="sidebar-nav-icon">{item.icon}</span>
                     <span>{item.label}</span>
                     {item.badge && <span className="badge">{item.badge}</span>}
+                    {hasUpdate(item.href) && newDot}
                   </div>
                 </Link>
               ) : (
@@ -239,15 +248,17 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
                   >
                     <span className="sidebar-nav-icon">{item.icon}</span>
                     <span>{item.label}</span>
+                    {groupHasUpdate && !openDropdowns.has(item.label) && newDot}
                     <ChevronDown size={14} className="chevron" />
                   </div>
 
                   <div className={`sidebar-dropdown-menu ${openDropdowns.has(item.label) ? "open" : ""}`}>
                     {item.children?.map((child) => (
-                      <Link href={child.href} key={child.href} onClick={onClose}>
+                      <Link href={child.href} key={child.href} onClick={() => { markSeen(child.href); onClose?.(); }}>
                         <div className={`sidebar-dropdown-item ${pathname === child.href ? "active" : ""}`}>
                           {child.icon}
                           {child.label}
+                          {hasUpdate(child.href) && newDot}
                         </div>
                       </Link>
                     ))}
@@ -258,7 +269,7 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
           );
         })}
 
-        {/* Switch Portal (admin can go to student view) */}
+        {/* Switch Portal (admin can go to the learner view) */}
         {isAdmin() && (
           <>
             <div className="sidebar-section-label" style={{ marginTop: 8 }}>
@@ -269,7 +280,7 @@ export default function Sidebar({ mobileOpen, onClose }: SidebarProps) {
                 <span className="sidebar-nav-icon">
                   <Home size={18} />
                 </span>
-                <span>Student View</span>
+                <span>Learner View</span>
               </div>
             </Link>
           </>

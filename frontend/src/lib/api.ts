@@ -45,16 +45,19 @@ export const refreshAccessToken = (): Promise<string> => {
 
 type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 
-const endSession = () => {
+const endSession = (reason?: string) => {
   clearAuth();
   if (typeof window === "undefined") return;
   // Let the persisted store reset itself, then go to login (keeping where the user was)
   window.dispatchEvent(new Event("lms:logged-out"));
   const here = window.location.pathname + window.location.search;
   if (!window.location.pathname.startsWith("/login")) {
-    window.location.href = `/login?next=${encodeURIComponent(here)}`;
+    window.location.href = `/login?next=${encodeURIComponent(here)}${reason ? `&reason=${reason}` : ""}`;
   }
 };
+
+const errorCode = (err: unknown) =>
+  axios.isAxiosError<{ code?: string }>(err) ? err.response?.data?.code : undefined;
 
 api.interceptors.response.use(
   (response) => response,
@@ -77,8 +80,10 @@ api.interceptors.response.use(
         const token = await refreshAccessToken();
         originalRequest.headers.Authorization = `Bearer ${token}`;
         return api(originalRequest);
-      } catch {
-        endSession();
+      } catch (refreshError) {
+        // Learners can be signed in on one device only; a newer sign-in elsewhere ends this one
+        const replaced = code === "SESSION_REPLACED" || errorCode(refreshError) === "SESSION_REPLACED";
+        endSession(replaced ? "other-device" : undefined);
         return Promise.reject(error);
       }
     }
@@ -104,6 +109,8 @@ export const apiErrorMessage = (err: unknown, fallback: string): string => {
 export const authAPI = {
   login: (data: { email: string; password: string }) =>
     api.post("/auth/login", data),
+  verifyOtp: (otpToken: string, otp: string) => api.post("/auth/verify-otp", { otpToken, otp }),
+  resendOtp: (otpToken: string) => api.post("/auth/resend-otp", { otpToken }),
   register: (data: {
     email: string;
     password: string;
@@ -204,6 +211,7 @@ export const coursesAPI = {
     }),
   // Categories
   getCategories: () => api.get("/courses/categories/all"),
+  adminGetCategories: () => api.get("/courses/categories/admin"),
   createCategory: (data: object) => api.post("/courses/categories", data),
   updateCategory: (id: string, data: object) =>
     api.put(`/courses/categories/${id}`, data),
@@ -321,6 +329,7 @@ export const usersAPI = {
   getNotificationHistory: () => api.get("/notifications/history"),
   markNotificationRead: (id: string) => api.put(`/notifications/${id}/read`),
   markAllRead: () => api.put("/notifications/read-all"),
+  markReadByLink: (path: string) => api.put("/notifications/read-by-link", { path }),
   deleteNotification: (id: string) => api.delete(`/notifications/${id}`),
   getCertificates: () => api.get("/certificates"),
   uploadAvatar: (file: File) => {
@@ -370,6 +379,8 @@ export const teacherAPI = {
   enrollStudent: (id: string, courseId: string) =>
     api.post(`/teacher/students/${id}/enroll`, { courseId }),
   listCourses: () => api.get("/teacher/courses"),
+  myCourses: () => api.get("/teacher/my-courses"),
+  getStudent: (id: string) => api.get(`/teacher/students/${id}`),
 };
 
 export const chatAPI = {
@@ -397,6 +408,9 @@ export const schoolsAPI = {
   update: (id: string, data: object) => api.put(`/admin/schools/${id}`, data),
   delete: (id: string) => api.delete(`/admin/schools/${id}`),
   getAnalytics: (id: string, params?: object) => api.get(`/admin/schools/${id}/analytics`, { params }),
+  getOverview: (id: string) => api.get(`/admin/schools/${id}/overview`),
+  exportStudents: (id: string) => api.get(`/admin/schools/${id}/export`, { responseType: "blob" }),
+  exportAll: () => api.get("/admin/schools/export", { responseType: "blob" }),
   // Academic years
   listAcademicYears: (schoolId: string) => api.get(`/admin/schools/${schoolId}/academic-years`),
   createAcademicYear: (schoolId: string, data: object) => api.post(`/admin/schools/${schoolId}/academic-years`, data),
@@ -443,7 +457,36 @@ export const analyticsAPI = {
 // ==================== AUDIT LOGS ====================
 export const auditAPI = {
   list: (params?: object) => api.get("/admin/audit-logs", { params }),
+  export: (params?: object) => api.get("/admin/audit-logs/export", { params, responseType: "blob" }),
 };
+
+// ==================== ACTIVITY & SIDEBAR UPDATES ====================
+export interface NavIndicators {
+  items: Record<string, { count?: number; latestAt?: string | null }>;
+  unreadByLink: Record<string, number>;
+}
+
+export const activityAPI = {
+  // Best effort: activity tracking must never surface an error
+  track: (event: "PAGE_VIEW" | "CLICK" | "DOWNLOAD", data: { path?: string; label?: string }) =>
+    api.post("/activity", { event, ...data }).catch(() => {}),
+  indicators: () => api.get<{ data: NavIndicators }>("/nav/indicators"),
+};
+
+// Saves a blob response (CSV exports) as a file
+export const downloadBlob = (data: BlobPart, filename: string, type = "text/csv") => {
+  const url = URL.createObjectURL(new Blob([data], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// Teacher-created learners get an internal placeholder address; show their login ID instead
+export const PLACEHOLDER_EMAIL_DOMAIN = "@students.derivion.local";
+export const displayLogin = (u?: { email?: string | null; username?: string | null } | null) =>
+  !u ? "" : u.email && !u.email.endsWith(PLACEHOLDER_EMAIL_DOMAIN) ? u.email : u.username || "";
 
 // ==================== CERTIFICATE VERIFICATION ====================
 export const certificateAPI = {

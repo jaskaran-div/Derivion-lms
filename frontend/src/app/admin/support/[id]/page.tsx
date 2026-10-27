@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
-import { chatAPI, apiErrorMessage } from "@/lib/api";
+import { chatAPI, apiErrorMessage, displayLogin } from "@/lib/api";
 import toast from "react-hot-toast";
 import { ArrowLeft, Send, KeyRound } from "lucide-react";
 
@@ -114,7 +114,7 @@ export default function AdminSupportThreadPage() {
             {!u ? "Loading…" : (
               <>
                 <div><strong>Role:</strong> {u.role}</div>
-                <div><strong>Email:</strong> {u.email}</div>
+                <div><strong>Login:</strong> {displayLogin(u)}</div>
                 {u.username && <div><strong>Student ID:</strong> {u.username}</div>}
                 {u.phone && <div><strong>Phone:</strong> {u.phone}</div>}
                 {u.guardianEmail && <div><strong>Guardian email:</strong> {u.guardianEmail}</div>}

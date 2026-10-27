@@ -6,10 +6,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import toast from "react-hot-toast";
-import { Eye, EyeOff, Mail, Lock, ArrowRight } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, ArrowRight, ShieldCheck } from "lucide-react";
 import { apiErrorMessage, authAPI } from "@/lib/api";
-import { homePathFor, useAuthStore } from "@/store/authStore";
+import { homePathFor, useAuthStore, type User } from "@/store/authStore";
 import { isAxiosError } from "axios";
+import BrandLogo from "@/components/layout/BrandLogo";
 
 // Only same-site relative paths are allowed as post-login destinations
 const safeNext = () => {
@@ -19,7 +20,7 @@ const safeNext = () => {
 };
 
 const schema = z.object({
-  email: z.string().min(1, "Email or Student ID is required"),
+  email: z.string().min(1, "Email or Learner ID is required"),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -30,7 +31,13 @@ export default function LoginPage() {
   const { setUser, setTokens } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  // Individual learners confirm their email with a 6-digit code after the password step
+  const [otp, setOtp] = useState<{ token: string; email: string } | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  // Signed out because the same learner account signed in on another device
+  const [replacedSession] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("reason") === "other-device"
+  );
 
   const {
     register,
@@ -38,23 +45,54 @@ export default function LoginPage() {
     formState: { errors },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
+  const finishLogin = (data: { user: User; accessToken: string }) => {
+    setTokens(data.accessToken);
+    setUser(data.user);
+    toast.success(`Welcome back, ${data.user.firstName}! 👋`);
+    router.push(safeNext() || homePathFor(data.user.role));
+  };
+
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
-      setUnverifiedEmail(null);
       const res = await authAPI.login(data);
-      const { user, accessToken } = res.data.data;
-      setTokens(accessToken);
-      setUser(user);
-      toast.success(`Welcome back, ${user.firstName}! 👋`);
-      router.push(safeNext() || homePathFor(user.role));
-    } catch (err) {
-      if (isAxiosError<{ code?: string }>(err) && err.response?.data?.code === "EMAIL_NOT_VERIFIED") {
-        setUnverifiedEmail(data.email);
+      if (res.data.data.otpRequired) {
+        setOtp({ token: res.data.data.otpToken, email: res.data.data.email });
+        setOtpCode("");
+        toast.success(res.data.message);
+        return;
       }
+      finishLogin(res.data.data);
+    } catch (err) {
       toast.error(apiErrorMessage(err, "Login failed. Please try again."));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const submitOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otp || otpCode.length !== 6) return;
+    setLoading(true);
+    try {
+      const res = await authAPI.verifyOtp(otp.token, otpCode);
+      finishLogin(res.data.data);
+    } catch (err) {
+      if (isAxiosError<{ code?: string }>(err) && err.response?.data?.code === "OTP_SESSION_EXPIRED") setOtp(null);
+      toast.error(apiErrorMessage(err, "Could not verify the code."));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resendOtp = async () => {
+    if (!otp) return;
+    try {
+      const res = await authAPI.resendOtp(otp.token);
+      setOtp({ token: res.data.data.otpToken, email: res.data.data.email });
+      toast.success("A new code is on its way.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not send a new code."));
     }
   };
 
@@ -63,22 +101,8 @@ export default function LoginPage() {
       {/* Left panel */}
       <div className="auth-left">
         <div style={{ position: "relative", zIndex: 1, textAlign: "center" }}>
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              background: "rgba(255,255,255,0.2)",
-              backdropFilter: "blur(10px)",
-              borderRadius: 20,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 24px",
-              fontSize: 36,
-              border: "1px solid rgba(255,255,255,0.3)",
-            }}
-          >
-            🎓
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 28 }}>
+            <BrandLogo variant="light" height={44} />
           </div>
           <h1
             style={{
@@ -137,29 +161,58 @@ export default function LoginPage() {
       {/* Right panel */}
       <div className="auth-right">
         <div className="auth-form-container">
-          <div className="auth-title">Welcome back 👋</div>
-          <p className="auth-subtitle">Sign in to your account to continue</p>
+          <div className="auth-mobile-logo" style={{ marginBottom: 20 }}>
+            <BrandLogo height={30} />
+          </div>
+          <div className="auth-title">{otp ? "Verify your email" : "Welcome back 👋"}</div>
+          <p className="auth-subtitle">
+            {otp ? `Enter the 6-digit code we sent to ${otp.email}` : "Sign in to your account to continue"}
+          </p>
 
-          {unverifiedEmail && (
+          {replacedSession && !otp && (
             <div className="alert alert-warning" style={{ marginBottom: 20, display: "block" }}>
-              Your email address isn&apos;t verified yet. Check your inbox for the verification link.{" "}
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                style={{ padding: "2px 6px", textDecoration: "underline" }}
-                onClick={async () => {
-                  await authAPI.resendVerification(unverifiedEmail).catch(() => {});
-                  toast.success("If the account needs verification, a new link has been sent.");
-                }}
-              >
-                Resend link
-              </button>
+              You were signed out because your account was signed in on another device. A learner account can be used on one device at a time.
             </div>
           )}
 
+          {otp ? (
+            <form onSubmit={submitOtp}>
+              <div className="form-group">
+                <label className="form-label required" htmlFor="otp-code">Verification code</label>
+                <div className="input-group">
+                  <ShieldCheck size={16} className="input-group-icon" />
+                  <input
+                    id="otp-code"
+                    className="form-control"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    style={{ letterSpacing: 6, fontSize: 18, fontWeight: 600 }}
+                    autoFocus
+                  />
+                </div>
+                <div className="form-hint">The code expires in 10 minutes. Check your spam folder if you can&apos;t find it.</div>
+              </div>
+              <button
+                type="submit"
+                className="btn btn-primary w-full"
+                disabled={loading || otpCode.length !== 6}
+                style={{ justifyContent: "center", marginTop: 8, height: 46, fontSize: 15 }}
+              >
+                {loading ? "Verifying…" : <>Verify &amp; sign in <ArrowRight size={16} /></>}
+              </button>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, fontSize: 13 }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOtp(null)}>Use a different account</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={resendOtp}>Resend code</button>
+              </div>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit(onSubmit)}>
             <div className="form-group">
-              <label className="form-label required">Email or Student ID</label>
+              <label className="form-label required">Email or Learner ID</label>
               <div className="input-group">
                 <Mail size={16} className="input-group-icon" />
                 <input
@@ -230,6 +283,7 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+          )}
 
           <p style={{ marginTop: 20, fontSize: 13, color: "var(--gray-500)", textAlign: "center" }}>
             Accounts are created by your school or administrator. Forgot your password? Ask your teacher or administrator to reset it.

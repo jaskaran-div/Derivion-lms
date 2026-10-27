@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { homePathFor, useAuthStore } from "@/store/authStore";
-import { authAPI, settingsAPI } from "@/lib/api";
+import { activityAPI, authAPI, settingsAPI } from "@/lib/api";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import PublicShell from "./PublicShell";
@@ -65,10 +65,16 @@ export default function AppLayout({ children, title, requiredRole = "ANY", allow
     authAPI.getMe()
       .then((res) => {
         const me = res.data.data;
-        updateUser({ mustChangePassword: me.mustChangePassword, isEmailVerified: me.isEmailVerified, avatar: me.avatar, firstName: me.firstName, lastName: me.lastName });
+        updateUser({ mustChangePassword: me.mustChangePassword, isEmailVerified: me.isEmailVerified, avatar: me.avatar, firstName: me.firstName, lastName: me.lastName, learnerType: me.learnerType });
       })
       .catch(() => {});
   }, [hydrated, isAuthenticated, updateUser]);
+
+  // Page visits go to the audit log so admins can see what a user did after signing in
+  const pathname = usePathname();
+  useEffect(() => {
+    if (hydrated && isAuthenticated && pathname) activityAPI.track("PAGE_VIEW", { path: pathname });
+  }, [hydrated, isAuthenticated, pathname]);
 
   // The API reports a pending forced password change
   useEffect(() => {

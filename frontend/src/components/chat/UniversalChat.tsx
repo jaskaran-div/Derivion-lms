@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { chatAPI, apiErrorMessage } from "@/lib/api";
+import { chatAPI, apiErrorMessage, displayLogin } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import toast from "react-hot-toast";
 import {
@@ -221,7 +221,7 @@ export default function UniversalChat({ hint }: { hint?: string }) {
       default:
         return (
           <span className="badge badge-gray" style={{ fontSize: 10, padding: "2px 6px" }}>
-            <User size={10} style={{ marginRight: 2 }} /> Student
+            <User size={10} style={{ marginRight: 2 }} /> Learner
           </span>
         );
     }
@@ -331,7 +331,7 @@ export default function UniversalChat({ hint }: { hint?: string }) {
                     alignItems: "center",
                   }}
                 >
-                  <span>{activePartner.email}</span>
+                  <span>{displayLogin(activePartner)}</span>
                   {activePartner.username && (
                     <span style={{ fontFamily: "monospace" }}>@{activePartner.username}</span>
                   )}
@@ -703,7 +703,7 @@ export default function UniversalChat({ hint }: { hint?: string }) {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {su.email} {su.username ? `(@${su.username})` : ""}
+                      {displayLogin(su)}{su.username && displayLogin(su) !== su.username ? ` (@${su.username})` : ""}
                     </div>
                   </div>
                   <ChevronRight size={16} color="var(--gray-400)" />

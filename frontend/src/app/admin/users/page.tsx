@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { usersAPI, apiErrorMessage } from "@/lib/api";
+import { usersAPI, apiErrorMessage, displayLogin } from "@/lib/api";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import {
@@ -203,7 +203,7 @@ export default function AdminUsersPage() {
                         <div style={{ fontWeight: 600, fontSize: 14, color: "var(--gray-900)" }}>
                           {user.firstName} {user.lastName}
                         </div>
-                        <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{user.email}</div>
+                        <div style={{ fontSize: 12, color: "var(--gray-400)" }}>{displayLogin(user)}</div>
                         {user.phone && (
                           <div style={{ fontSize: 11, color: "var(--gray-400)" }}>{user.phone}</div>
                         )}

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, Menu, Search, X, ChevronRight, ChevronDown, Settings, LogOut, CheckCheck, CheckCircle2, AlertTriangle, AlertCircle, Info, Sparkles } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { usersAPI } from "@/lib/api";
+import { displayLogin, usersAPI } from "@/lib/api";
 import Link from "next/link";
 import { useNow } from "@/lib/useNow";
 
@@ -496,7 +496,7 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
           )}
           <div className="header-user-meta" style={{ minWidth: 0, maxWidth: 200 }}>
             <div className="header-user-name truncate">{user?.firstName} {user?.lastName}</div>
-            <div className="header-user-email truncate">{user?.email}</div>
+            <div className="header-user-email truncate">{displayLogin(user)}</div>
           </div>
           <ChevronDown size={16} color="var(--gray-500)" />
         </button>
@@ -508,7 +508,7 @@ export default function Header({ title, onMobileMenuToggle }: HeaderProps) {
                 {user?.firstName} {user?.lastName}
               </div>
               <div style={{ fontSize: 12, color: "var(--gray-500)", marginTop: 2, wordBreak: "break-all" }}>
-                {user?.email}
+                {displayLogin(user)}
               </div>
             </div>
             <div style={{ padding: 8 }}>

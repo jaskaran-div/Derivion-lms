@@ -14,6 +14,8 @@ export interface User {
   avatar?: string;
   mustChangePassword?: boolean;
   isEmailVerified?: boolean;
+  // Learners only: SCHOOL (added by a school/teacher) or INDIVIDUAL
+  learnerType?: "SCHOOL" | "INDIVIDUAL" | null;
 }
 
 interface AuthState {

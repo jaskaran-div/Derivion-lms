@@ -2512,3 +2512,77 @@ tbody tr:hover td {
   white-space: nowrap;
   border: 0;
 }
+
+/* "Something new here" dot on sidebar items (see useNavIndicators) */
+.nav-new-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px var(--bg-card, #fff);
+  margin-left: auto;
+  flex-shrink: 0;
+  animation: nav-dot-pulse 2s ease-in-out infinite;
+}
+.sidebar-dropdown-trigger .nav-new-dot + .chevron { margin-left: 8px; }
+@keyframes nav-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-new-dot { animation: none; }
+}
+
+/* The login form shows the wordmark itself only when the branded left panel is hidden */
+.auth-mobile-logo { display: none; }
+@media (max-width: 1024px) {
+  .auth-mobile-logo { display: block; }
+}
+
+/* "Mark as complete" bar under PDF / document lessons */
+.doc-complete-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+/* Teacher: student detail modal */
+.student-detail-modal {
+  width: 860px;
+  max-width: 96vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 18px;
+  padding: 14px 16px;
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+}
+.detail-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gray-500); margin-bottom: 2px; }
+.detail-value { font-size: 14px; color: var(--gray-900); font-weight: 500; word-break: break-word; }
+.detail-section-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; margin: 4px 0 10px; color: var(--gray-900); }
+.cert-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+@media (max-width: 640px) {
+  .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

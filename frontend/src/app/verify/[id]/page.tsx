@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiErrorMessage, certificateAPI, certificatePdfUrl } from "@/lib/api";
-import { Award, CheckCircle, XCircle, Shield, GraduationCap, Calendar } from "lucide-react";
+import { Award, CheckCircle, XCircle, Shield, Calendar } from "lucide-react";
+import BrandLogo from "@/components/layout/BrandLogo";
 import Link from "next/link";
 
 interface CertData {
@@ -45,8 +46,7 @@ export default function CertificateVerifyPage() {
       <div className="verify-container">
         {/* Brand */}
         <div className="verify-brand">
-          <GraduationCap size={28} />
-          <span>Derivion LMS</span>
+          <BrandLogo variant="light" height={34} />
         </div>
 
         <div className="verify-card">

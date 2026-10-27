@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import AppLayout from "@/components/layout/AppLayout";
-import { schoolsAPI, coursesAPI, usersAPI, apiErrorMessage } from "@/lib/api";
+import { schoolsAPI, coursesAPI, usersAPI, apiErrorMessage, displayLogin, downloadBlob } from "@/lib/api";
 import toast from "react-hot-toast";
 import "./school-detail.css";
+import SchoolOverview, { type SchoolOverviewData } from "@/components/schools/SchoolOverview";
 import {
-  Building2, ArrowLeft, Plus, Users, BookOpen, Layers, Calendar, MapPin, Phone, Mail, Award, CheckCircle, XCircle, Edit, Trash2, UserPlus, ChevronRight, BarChart2, Download, Search, GraduationCap, Upload,
+  Building2, ArrowLeft, Plus, Users, BookOpen, Layers, Calendar, MapPin, Phone, Mail, Award, CheckCircle, XCircle, Edit, Trash2, UserPlus, ChevronRight, BarChart2, Download, Search, GraduationCap, Upload, LayoutDashboard,
 } from "lucide-react";
 
 interface Teacher {
@@ -110,7 +111,8 @@ export default function SchoolManagePage() {
   const [school, setSchool] = useState<SchoolDetail | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"members" | "classes" | "years" | "courses" | "analytics">("members");
+  const [activeTab, setActiveTab] = useState<"overview" | "members" | "classes" | "years" | "courses" | "analytics">("overview");
+  const [overview, setOverview] = useState<SchoolOverviewData | null>(null);
 
   // Members state
   const [members, setMembers] = useState<SchoolMember[]>([]);
@@ -163,8 +165,10 @@ export default function SchoolManagePage() {
     Promise.all([
       schoolsAPI.get(schoolId),
       schoolsAPI.getAnalytics(schoolId).catch(() => ({ data: { data: { summary: null } } })),
+      schoolsAPI.getOverview(schoolId).catch(() => ({ data: { data: null } })),
     ])
-      .then(([schoolRes, analyticsRes]) => {
+      .then(([schoolRes, analyticsRes, overviewRes]) => {
+      setOverview(overviewRes.data?.data ?? null);
       const sc = schoolRes.data.data;
       setSchool(sc);
       setSchoolForm({
@@ -481,8 +485,15 @@ export default function SchoolManagePage() {
           <div className="metric-card">
             <div className="metric-icon metric-indigo"><Users size={22} /></div>
             <div>
-              <div className="metric-value">{analytics?.totalStudents ?? school._count.memberships}</div>
+              <div className="metric-value">{overview?.summary.totalStudents ?? analytics?.totalStudents ?? 0}</div>
               <div className="metric-label">Enrolled Students</div>
+            </div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-icon metric-purple"><GraduationCap size={22} /></div>
+            <div>
+              <div className="metric-value">{overview?.summary.totalTeachers ?? 0}</div>
+              <div className="metric-label">Teachers</div>
             </div>
           </div>
           <div className="metric-card">
@@ -502,7 +513,9 @@ export default function SchoolManagePage() {
           <div className="metric-card">
             <div className="metric-icon metric-emerald"><Award size={22} /></div>
             <div>
-              <div className="metric-value">{analytics?.completionRate ? `${analytics.completionRate}%` : "0%"}</div>
+              <div className="metric-value">
+                {overview ? `${overview.summary.completionRate.toFixed(1)}%` : analytics?.completionRate ? `${analytics.completionRate}%` : "0%"}
+              </div>
               <div className="metric-label">Avg. Completion Rate</div>
             </div>
           </div>
@@ -510,6 +523,12 @@ export default function SchoolManagePage() {
 
         {/* Tab Navigation */}
         <div className="tabs-header">
+          <button
+            className={`tab-btn ${activeTab === "overview" ? "tab-btn--active" : ""}`}
+            onClick={() => setActiveTab("overview")}
+          >
+            <LayoutDashboard size={16} /> Overview
+          </button>
           <button
             className={`tab-btn ${activeTab === "members" ? "tab-btn--active" : ""}`}
             onClick={() => setActiveTab("members")}
@@ -541,6 +560,10 @@ export default function SchoolManagePage() {
             <BarChart2 size={16} /> Performance Analytics
           </button>
         </div>
+
+        {activeTab === "overview" && (
+          <SchoolOverview schoolId={school.id} schoolCode={school.code} data={overview} />
+        )}
 
         {/* Tab 0: Members */}
         {activeTab === "members" && (
@@ -649,7 +672,7 @@ export default function SchoolManagePage() {
                               </div>
                               <div className="member-info">
                                 <span className="member-name">{fullName}</span>
-                                <span className="member-email">{user.email}</span>
+                                <span className="member-email">{displayLogin(user)}</span>
                               </div>
                             </div>
                           </td>
@@ -854,9 +877,19 @@ export default function SchoolManagePage() {
                 <h2>School Performance & Analytics</h2>
                 <p>Institutional metrics, completion rates and learner progress</p>
               </div>
-              <Link href={`/admin/analytics/export/students?schoolId=${school.id}`} className="btn-secondary">
+              <button
+                className="btn-secondary"
+                onClick={async () => {
+                  try {
+                    const res = await schoolsAPI.exportStudents(school.id);
+                    downloadBlob(res.data, `school-${school.code}-students_${new Date().toISOString().split("T")[0]}.csv`);
+                  } catch (err) {
+                    toast.error(apiErrorMessage(err, "Export failed."));
+                  }
+                }}
+              >
                 <Download size={15} /> Export School CSV
-              </Link>
+              </button>
             </div>
 
             <div className="analytics-overview-cards">
@@ -865,7 +898,7 @@ export default function SchoolManagePage() {
                 <span className="stat-num">{analytics?.totalStudents ?? school._count.memberships}</span>
               </div>
               <div className="stat-box">
-                <span className="stat-title">Active Active Learners</span>
+                <span className="stat-title">Active Learners</span>
                 <span className="stat-num">{analytics?.activeStudents ?? 0}</span>
               </div>
               <div className="stat-box">

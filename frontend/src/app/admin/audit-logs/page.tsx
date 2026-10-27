@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import AppLayout from "@/components/layout/AppLayout";
-import { auditAPI } from "@/lib/api";
+import { apiErrorMessage, auditAPI, downloadBlob, displayLogin } from "@/lib/api";
+import toast from "react-hot-toast";
 import {
   ScrollText, Search, Filter, ChevronDown, ChevronUp,
   LogIn, LogOut, Shield, Users, BookOpen, Award,
-  Building2, Upload, CreditCard, Key,
+  Building2, Upload, CreditCard, Key, MousePointerClick, Download, AlertTriangle, RefreshCw,
 } from "lucide-react";
 
 const ACTION_LABELS: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   LOGIN: { label: "Login", color: "#10b981", icon: <LogIn size={13} /> },
   LOGOUT: { label: "Logout", color: "#6b7280", icon: <LogOut size={13} /> },
+  ACTIVITY: { label: "User Activity", color: "#0ea5e9", icon: <MousePointerClick size={13} /> },
   PASSWORD_CHANGE: { label: "Password Changed", color: "#f59e0b", icon: <Key size={13} /> },
   ROLE_CHANGE: { label: "Role Changed", color: "#8b5cf6", icon: <Shield size={13} /> },
   USER_CREATED: { label: "User Created", color: "#1d4ed8", icon: <Users size={13} /> },
@@ -28,50 +30,132 @@ const ACTION_LABELS: Record<string, { label: string; color: string; icon: React.
 
 const ALL_ACTIONS = Object.keys(ACTION_LABELS);
 
+// What a user did, for ACTIVITY entries (details.event)
+const EVENT_LABELS: Record<string, string> = {
+  PAGE_VIEW: "Visited page",
+  CLICK: "Clicked",
+  DOWNLOAD: "Downloaded",
+  LESSON_OPENED: "Opened lesson",
+  LESSON_COMPLETED: "Completed lesson",
+  LESSON_UNMARKED: "Unmarked lesson",
+  QUIZ_STARTED: "Started quiz",
+  QUIZ_SUBMITTED: "Submitted quiz",
+  FORUM_POST: "Posted in forum",
+  FORUM_REPLY: "Replied in forum",
+  EMAIL_VERIFIED: "Verified email",
+};
+
+type Details = Record<string, unknown> & { event?: string };
+
 interface AuditLogRow {
   id: string;
   action: string;
   targetId?: string | null;
   targetType?: string | null;
-  details?: unknown;
+  details?: Details | null;
   ipAddress?: string | null;
+  userAgent?: string | null;
   createdAt: string;
-  user?: { firstName: string; lastName: string; role: string; email?: string } | null;
+  user?: { firstName: string; lastName: string; role: string; email?: string; username?: string | null } | null;
 }
+
+// One readable line for an entry: "Opened lesson: Intro to Options", "Login failed — wrong password"…
+const summarize = (log: AuditLogRow) => {
+  const d = log.details || {};
+  if (log.action === "LOGIN") return d.success === false ? `Failed — ${String(d.reason || "unknown reason")}` : "Signed in";
+  if (log.action === "ACTIVITY") {
+    const label = EVENT_LABELS[d.event || ""] || d.event || "Activity";
+    const what = d.lesson || d.quiz || d.title || d.label || d.path;
+    const extra = d.event === "QUIZ_SUBMITTED" && d.score !== undefined ? ` (${Math.round(Number(d.score))}%, ${d.passed ? "passed" : "not passed"})` : "";
+    return `${label}${what ? `: ${String(what)}` : ""}${extra}`;
+  }
+  const action = d.action ? String(d.action).replace(/_/g, " ").toLowerCase() : "";
+  return action ? action.charAt(0).toUpperCase() + action.slice(1) : "";
+};
+
+// "Chrome on Windows" from a user-agent string
+const device = (ua?: string | null) => {
+  if (!ua) return "—";
+  const browser = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "Browser";
+  const os = /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Windows/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "";
+  return os ? `${browser} on ${os}` : browser;
+};
 
 export default function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditLogRow[]>([]);
   const [total, setTotal] = useState(0);
+  const [retention, setRetention] = useState<{ days: number; warningDays: number; expiringSoon: number } | null>(null);
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
+  // The query whose results are on screen; anything else means the table is still loading
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const LIMIT = 50;
 
+  // Search runs on the server, a moment after typing stops
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  const loadLogs = () => {
-    return auditAPI.list({
-        page,
-        limit: LIMIT,
-        action: actionFilter || undefined,
-      })
+  const filters = useCallback(
+    () => ({
+      action: actionFilter || undefined,
+      role: roleFilter || undefined,
+      search: debouncedSearch || undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    }),
+    [actionFilter, roleFilter, debouncedSearch, startDate, endDate]
+  );
+
+  const queryKey = JSON.stringify({ page, ...filters() });
+  const loading = loadedKey !== queryKey;
+
+  const loadLogs = useCallback(() => {
+    const key = JSON.stringify({ page, ...filters() });
+    return auditAPI
+      .list({ page, limit: LIMIT, ...filters() })
       .then((res) => {
         setLogs(res.data.data.logs);
         setTotal(res.data.data.pagination.total);
+        setRetention(res.data.data.retention);
       })
-      .catch((err) => {
-        console.error(err);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  };
+      .catch((err) => toast.error(apiErrorMessage(err, "Failed to load audit logs.")))
+      .finally(() => setLoadedKey(key));
+  }, [page, filters]);
 
   useEffect(() => {
     loadLogs();
-  }, [page, actionFilter]);
+  }, [loadLogs]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await auditAPI.export(filters());
+      downloadBlob(res.data, `audit-logs_${new Date().toISOString().split("T")[0]}.csv`);
+      toast.success("Audit logs exported.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Export failed."));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const setFilter = (fn: () => void) => {
+    fn();
+    setPage(1);
+  };
 
   const totalPages = Math.ceil(total / LIMIT);
 
@@ -84,16 +168,8 @@ export default function AuditLogsPage() {
   const getActionMeta = (action: string) =>
     ACTION_LABELS[action] || { label: action, color: "#6b7280", icon: <Shield size={13} /> };
 
-  const filteredLogs = search
-    ? logs.filter((l) =>
-        l.user?.email?.toLowerCase().includes(search.toLowerCase()) ||
-        l.user?.firstName?.toLowerCase().includes(search.toLowerCase()) ||
-        l.action?.toLowerCase().includes(search.toLowerCase())
-      )
-    : logs;
-
   return (
-    <AppLayout>
+    <AppLayout requiredRole="ADMIN">
       <div className="audit-page">
         {/* Header */}
         <div className="audit-header">
@@ -104,11 +180,38 @@ export default function AuditLogsPage() {
             <div>
               <h1 className="audit-title">Audit Logs</h1>
               <p className="audit-subtitle">
-                Security and administrative action history — {total.toLocaleString()} total events
+                Sign-ins, admin actions and what users did after signing in — {total.toLocaleString()} matching events
               </p>
             </div>
           </div>
+          <div className="audit-header-actions">
+            <button className="page-btn" onClick={() => loadLogs()} title="Refresh">
+              <RefreshCw size={14} /> Refresh
+            </button>
+            <button className="btn-export-audit" onClick={handleExport} disabled={exporting}>
+              <Download size={14} /> {exporting ? "Exporting…" : "Export CSV"}
+            </button>
+          </div>
         </div>
+
+        {retention && (
+          retention.expiringSoon > 0 ? (
+            <div className="audit-retention audit-retention--warn" role="status">
+              <AlertTriangle size={17} />
+              <div>
+                <strong>{retention.expiringSoon.toLocaleString()} entries will be deleted within {retention.warningDays} days.</strong>{" "}
+                Logs are kept for {retention.days} days. Export them now if you need a copy.
+              </div>
+              <button className="btn-export-audit" onClick={handleExport} disabled={exporting}>
+                <Download size={14} /> Export
+              </button>
+            </div>
+          ) : (
+            <div className="audit-retention">
+              Logs are kept for {retention.days} days and then deleted automatically. You&apos;ll get a notification {retention.warningDays} days before entries are removed.
+            </div>
+          )
+        )}
 
         {/* Filters */}
         <div className="audit-filters">
@@ -116,7 +219,7 @@ export default function AuditLogsPage() {
             <Search size={16} className="audit-search-icon" />
             <input
               className="audit-search"
-              placeholder="Filter by user email or name..."
+              placeholder="Search by name, email or login ID…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -126,7 +229,8 @@ export default function AuditLogsPage() {
             <select
               className="audit-select"
               value={actionFilter}
-              onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
+              onChange={(e) => setFilter(() => setActionFilter(e.target.value))}
+              aria-label="Action"
             >
               <option value="">All Actions</option>
               {ALL_ACTIONS.map((a) => (
@@ -134,6 +238,20 @@ export default function AuditLogsPage() {
               ))}
             </select>
           </div>
+          <select className="audit-select audit-select--plain" value={roleFilter} onChange={(e) => setFilter(() => setRoleFilter(e.target.value))} aria-label="Role">
+            <option value="">All Roles</option>
+            <option value="STUDENT">Learners</option>
+            <option value="TEACHER">Teachers</option>
+            <option value="ADMIN">Admins</option>
+          </select>
+          <label className="audit-date">
+            From
+            <input type="date" value={startDate} max={endDate || undefined} onChange={(e) => setFilter(() => setStartDate(e.target.value))} />
+          </label>
+          <label className="audit-date">
+            To
+            <input type="date" value={endDate} min={startDate || undefined} onChange={(e) => setFilter(() => setEndDate(e.target.value))} />
+          </label>
         </div>
 
         {/* Table */}
@@ -142,7 +260,7 @@ export default function AuditLogsPage() {
             <div className="audit-loading">
               {[1,2,3,4,5].map((i) => <div key={i} className="log-skeleton" />)}
             </div>
-          ) : filteredLogs.length === 0 ? (
+          ) : logs.length === 0 ? (
             <div className="audit-empty">
               <ScrollText size={40} className="empty-icon" />
               <p>No audit logs found for the selected filters.</p>
@@ -155,18 +273,18 @@ export default function AuditLogsPage() {
                     <th>Timestamp</th>
                     <th>User</th>
                     <th>Action</th>
-                    <th>Target</th>
-                    <th>IP Address</th>
-                    <th>Details</th>
+                    <th>What happened</th>
+                    <th>IP / Device</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLogs.map((log) => {
+                  {logs.map((log) => {
                     const meta = getActionMeta(log.action);
                     const isExpanded = expandedLog === log.id;
                     return (
-                      <>
-                        <tr key={log.id} className="audit-row" onClick={() => setExpandedLog(isExpanded ? null : log.id)}>
+                      <Fragment key={log.id}>
+                        <tr className="audit-row" onClick={() => setExpandedLog(isExpanded ? null : log.id)}>
                           <td className="audit-time">{formatDate(log.createdAt)}</td>
                           <td>
                             {log.user ? (
@@ -178,11 +296,11 @@ export default function AuditLogsPage() {
                                   <div className="audit-user-name">
                                     {log.user.firstName} {log.user.lastName}
                                   </div>
-                                  <div className="audit-user-role">{log.user.role}</div>
+                                  <div className="audit-user-role">{log.user.role === "STUDENT" ? "LEARNER" : log.user.role} · {displayLogin(log.user)}</div>
                                 </div>
                               </div>
                             ) : (
-                              <span className="audit-system">System</span>
+                              <span className="audit-system">System / unknown</span>
                             )}
                           </td>
                           <td>
@@ -191,33 +309,37 @@ export default function AuditLogsPage() {
                               {meta.label}
                             </span>
                           </td>
-                          <td className="audit-target">
-                            {log.targetType && (
-                              <span className="audit-target-type">{log.targetType}</span>
-                            )}
-                            {log.targetId && (
-                              <span className="audit-target-id">{log.targetId.slice(0, 8)}...</span>
-                            )}
+                          <td className="audit-summary">
+                            {summarize(log) || (log.targetType ? <span className="audit-target-type">{log.targetType}</span> : "—")}
                           </td>
-                          <td className="audit-ip">{log.ipAddress || "—"}</td>
+                          <td className="audit-ip">
+                            <div>{log.ipAddress || "—"}</div>
+                            <div className="audit-device">{device(log.userAgent)}</div>
+                          </td>
                           <td>
-                            {log.details != null && (
-                              <button className="audit-expand-btn">
-                                {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                              </button>
-                            )}
+                            <button className="audit-expand-btn" aria-label={isExpanded ? "Hide details" : "Show details"}>
+                              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </button>
                           </td>
                         </tr>
-                        {isExpanded && log.details && (
-                          <tr key={`${log.id}-details`} className="audit-details-row">
+                        {isExpanded && (
+                          <tr className="audit-details-row">
                             <td colSpan={6}>
                               <pre className="audit-details-json">
-                                {JSON.stringify(log.details, null, 2)}
+                                {JSON.stringify(
+                                  {
+                                    ...(log.targetType && { target: `${log.targetType} ${log.targetId || ""}`.trim() }),
+                                    ...(log.details || {}),
+                                    ...(log.userAgent && { userAgent: log.userAgent }),
+                                  },
+                                  null,
+                                  2
+                                )}
                               </pre>
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -370,6 +492,35 @@ export default function AuditLogsPage() {
           .page-btn:hover:not(:disabled) { background: var(--hover); }
           .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
           .page-info { font-size: 0.875rem; color: var(--text-secondary); }
+        
+          .audit-header-actions { display: flex; gap: 0.5rem; align-items: center; }
+          .btn-export-audit {
+            display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem;
+            background: #0f1115; color: #fff; border: none; border-radius: 8px; cursor: pointer;
+            font-size: 0.85rem; font-weight: 600; white-space: nowrap;
+          }
+          .btn-export-audit:disabled { opacity: 0.5; cursor: not-allowed; }
+          .page-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+          .audit-retention {
+            display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 1rem; margin-bottom: 1rem;
+            border-radius: 10px; font-size: 0.85rem; color: var(--text-secondary);
+            background: var(--hover); border: 1px solid var(--border);
+          }
+          .audit-retention--warn { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+          .audit-retention--warn > div { flex: 1; }
+          .audit-select--plain { padding-left: 0.85rem; min-width: 130px; }
+          .audit-date {
+            display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-secondary);
+          }
+          .audit-date input {
+            padding: 0.5rem 0.6rem; background: var(--card-bg); border: 1px solid var(--border);
+            border-radius: 9px; color: var(--text-primary); font-size: 0.85rem;
+          }
+          .audit-summary { max-width: 360px; color: var(--text-primary); font-size: 0.83rem; word-break: break-word; }
+          .audit-device { font-family: inherit; font-size: 0.72rem; margin-top: 2px; }
+          @media (max-width: 720px) {
+            .audit-header { flex-direction: column; align-items: flex-start; }
+          }
         `}</style>
       </div>
     </AppLayout>

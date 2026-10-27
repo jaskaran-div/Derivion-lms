@@ -13,7 +13,7 @@ export default function CourseOverview({ course, totalLessons, totalDuration }: 
       <div className="course-specs-grid">
         <div className="course-spec-row"><span className="spec-icon"><BookOpen size={16} /></span><span>Skill level: <strong>{course.level || "All levels"}</strong></span></div>
         <div className="course-spec-row"><span className="spec-icon"><PlayCircle size={16} /></span><span>Lessons: <strong>{totalLessons}</strong></span></div>
-        <div className="course-spec-row"><span className="spec-icon"><Users size={16} /></span><span>Students: <strong>{(course.totalStudents || 0).toLocaleString("en-IN")}</strong></span></div>
+        <div className="course-spec-row"><span className="spec-icon"><Users size={16} /></span><span>Learners: <strong>{(course.totalStudents || 0).toLocaleString("en-IN")}</strong></span></div>
         <div className="course-spec-row"><span className="spec-icon"><Clock size={16} /></span><span>Duration: <strong>{totalDuration > 0 ? formatDuration(totalDuration) : "—"}</strong></span></div>
         <div className="course-spec-row"><span className="spec-icon"><Globe size={16} /></span><span>Language: <strong>{course.language || "English"}</strong></span></div>
         <div className="course-spec-row"><span className="spec-icon"><Award size={16} /></span><span>Certificate: <strong>On completion</strong></span></div>

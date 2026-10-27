@@ -56,6 +56,7 @@ export default function AnalyticsPage() {
   const [loadedTab, setLoadedTab] = useState<Tab | null>(null);
   const loading = loadedTab !== tab;
   const [exporting, setExporting] = useState(false);
+  const [failedTab, setFailedTab] = useState<Tab | null>(null);
 
 
   const loadTab = (t: Tab) => {
@@ -65,7 +66,13 @@ export default function AnalyticsPage() {
         : t === "courses"
           ? analyticsAPI.getCourses({ limit: 50 }).then((res) => setCourseData(res.data.data.courses))
           : analyticsAPI.getAtRisk().then((res) => setAtRisk(res.data.data));
-    return request.catch((err) => console.error(err)).finally(() => setLoadedTab(t));
+    return request
+      .then(() => setFailedTab((f) => (f === t ? null : f)))
+      .catch((err) => {
+        console.error(err);
+        setFailedTab(t);
+      })
+      .finally(() => setLoadedTab(t));
   };
 
   useEffect(() => {
@@ -94,7 +101,7 @@ export default function AnalyticsPage() {
   const s = overview?.summary;
 
   return (
-    <AppLayout>
+    <AppLayout requiredRole="ADMIN">
       <div className="analytics-page">
         {/* Header */}
         <div className="analytics-header">
@@ -141,6 +148,13 @@ export default function AnalyticsPage() {
         {loading ? (
           <div className="analytics-loading">
             {[1,2,3,4,5,6].map((i) => <div key={i} className="skeleton-card" />)}
+          </div>
+        ) : failedTab === tab ? (
+          <div className="empty-state">
+            <div className="empty-state-icon"><AlertTriangle size={32} /></div>
+            <div className="empty-state-title">Analytics could not be loaded</div>
+            <div className="empty-state-text">Something went wrong while fetching this report.</div>
+            <button className="btn btn-primary" onClick={() => loadTab(tab)}><RefreshCw size={15} /> Try again</button>
           </div>
         ) : (
           <>

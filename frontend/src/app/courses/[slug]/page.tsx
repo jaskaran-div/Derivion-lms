@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { Bookmark, Clock, Globe, Play, Users } from "lucide-react";
+import { Bookmark, CheckCircle2, ChevronRight, Clock, Globe, Play, Users } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import CustomVideoPlayer from "@/components/player/CustomVideoPlayer";
 import LearnerContentProtection from "@/components/content/LearnerContentProtection";
@@ -206,7 +206,7 @@ export default function CourseDetailPage() {
               <div className="player-meta-item">
                 <Users size={16} color="var(--gray-500)" aria-hidden="true" />
                 <strong>{(course.totalStudents || 0).toLocaleString("en-IN")}</strong>
-                <span>{course.totalStudents === 1 ? "Student" : "Students"} enrolled</span>
+                <span>{course.totalStudents === 1 ? "Learner" : "Learners"} enrolled</span>
               </div>
               {totalDuration > 0 && (
                 <div className="player-meta-item">
@@ -231,7 +231,40 @@ export default function CourseDetailPage() {
             {/* LEFT: player, actions, tabs */}
             <div style={{ minWidth: 0 }}>
               {isPlaying && mediaUrl && activeContent && isDocument ? (
-                <DocumentViewer content={activeContent} url={mediaUrl} />
+                <>
+                  <DocumentViewer content={activeContent} url={mediaUrl} />
+                  {/* Documents have no "ended" event, so learners mark them complete themselves */}
+                  {course.isEnrolled && (
+                    <div className="doc-complete-bar">
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, color: "var(--gray-900)" }}>
+                          {completedIds.has(activeContent.id) ? "You've completed this document" : "Finished reading?"}
+                        </div>
+                        <div style={{ fontSize: 13, color: "var(--gray-500)" }}>
+                          {completedIds.has(activeContent.id)
+                            ? "It counts towards your course progress."
+                            : "Mark it as complete to update your course progress."}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                        {completedIds.has(activeContent.id) ? (
+                          <button className="btn btn-secondary" onClick={() => toggleComplete(activeContent, false)}>
+                            <CheckCircle2 size={16} color="var(--success)" /> Completed
+                          </button>
+                        ) : (
+                          <button className="btn btn-primary" onClick={() => toggleComplete(activeContent, true)}>
+                            <CheckCircle2 size={16} /> Mark as complete
+                          </button>
+                        )}
+                        {nextContent && completedIds.has(activeContent.id) && (
+                          <button className="btn btn-dark" onClick={() => openContent(nextContent)}>
+                            Next lesson <ChevronRight size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : isPlaying && mediaUrl && activeContent ? (
                 <CustomVideoPlayer
                   src={mediaUrl}

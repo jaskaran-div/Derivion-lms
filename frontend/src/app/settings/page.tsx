@@ -3,12 +3,13 @@
 import { useState, useEffect } from "react";
 import AppLayout from "@/components/layout/AppLayout";
 import { useAuthStore } from "@/store/authStore";
-import { authAPI, usersAPI, apiErrorMessage } from "@/lib/api";
+import { authAPI, usersAPI, settingsAPI, apiErrorMessage, displayLogin } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import toast from "react-hot-toast";
-import { User, Lock, Bell, Camera, CreditCard } from "lucide-react";
+import Link from "next/link";
+import { User, Lock, Bell, Camera, CreditCard, Mail, MessageSquare, School } from "lucide-react";
 
 const profileSchema = z.object({
   firstName: z.string().min(2),
@@ -35,6 +36,20 @@ export default function SettingsPage() {
   const [loadingPassword, setLoadingPassword] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [payments, setPayments] = useState<{ id: string; amount: string | number; status: string; createdAt: string; course: { title: string } | null }[]>([]);
+  const [contactEmail, setContactEmail] = useState("");
+
+  // Learners can't edit their own details: school learners ask their teacher, individual learners contact support
+  const isLearner = user?.role === "STUDENT";
+  const isSchoolLearner = isLearner && user?.learnerType === "SCHOOL";
+
+  useEffect(() => {
+    if (!isLearner) return;
+    settingsAPI.getPublic().then((res) => setContactEmail(res.data.data.contactEmail)).catch(() => {});
+  }, [isLearner]);
+
+  const changeRequestMail = `mailto:${contactEmail}?subject=${encodeURIComponent("Profile change request")}&body=${encodeURIComponent(
+    `Hi, I'd like to update my profile details.\n\nName: ${user?.firstName ?? ""} ${user?.lastName ?? ""}\nLogin: ${displayLogin(user)}\n\nPlease change:\n`
+  )}`;
 
   const { register: regProfile, handleSubmit: submitProfile, formState: { errors: errProfile } } = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
@@ -139,6 +154,7 @@ export default function SettingsPage() {
                     ) : (
                       <div className="avatar avatar-lg">{getInitials()}</div>
                     )}
+                    {!isLearner && (
                     <label
                       style={{
                         position: "absolute",
@@ -163,17 +179,52 @@ export default function SettingsPage() {
                         onChange={e => e.target.files?.[0] && handleAvatarUpload(e.target.files[0])}
                       />
                     </label>
+                    )}
                   </div>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 16 }}>{user?.firstName} {user?.lastName}</div>
-                    <div style={{ color: "var(--gray-500)", fontSize: 14 }}>{user?.email}</div>
-                    <div style={{ color: "var(--gray-400)", fontSize: 12, marginTop: 2 }}>
-                      {uploadingAvatar ? "Uploading..." : "Click camera to update photo"}
-                    </div>
+                    <div style={{ color: "var(--gray-500)", fontSize: 14 }}>{displayLogin(user)}</div>
+                    {!isLearner && (
+                      <div style={{ color: "var(--gray-400)", fontSize: 12, marginTop: 2 }}>
+                        {uploadingAvatar ? "Uploading..." : "Click camera to update photo"}
+                      </div>
+                    )}
                   </div>
                 </div>
 
+                {isLearner && (
+                  <div className="alert alert-info" style={{ display: "block", marginBottom: 20 }}>
+                    {isSchoolLearner ? (
+                      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                        <School size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+                        <div>
+                          <strong>Your details are managed by your school.</strong>
+                          <div style={{ marginTop: 2 }}>To change your name, contact details or password, please ask your teacher.</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <strong>Need to change your details?</strong>
+                        <div style={{ marginTop: 2, marginBottom: 10 }}>
+                          Send us a request by email or message our team in Support Chat, and we&apos;ll update it for you.
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {contactEmail && (
+                            <a className="btn btn-secondary btn-sm" href={changeRequestMail}>
+                              <Mail size={14} /> Email {contactEmail}
+                            </a>
+                          )}
+                          <Link className="btn btn-primary btn-sm" href="/support">
+                            <MessageSquare size={14} /> Open Support Chat
+                          </Link>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 <form onSubmit={submitProfile(onProfileSubmit)}>
+                  <fieldset disabled={isLearner} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                   <div className="grid-2">
                     <div className="form-group">
                       <label className="form-label required">First Name</label>
@@ -187,19 +238,22 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Email Address</label>
-                    <input value={user?.email || ""} disabled className="form-control" style={{ background: "var(--gray-50)", color: "var(--gray-500)" }} />
-                    <div className="form-hint">Email cannot be changed. Contact support if needed.</div>
+                    <label className="form-label">{isSchoolLearner ? "Learner ID" : "Email Address"}</label>
+                    <input value={displayLogin(user)} disabled className="form-control" style={{ background: "var(--gray-50)", color: "var(--gray-500)" }} />
+                    {!isLearner && <div className="form-hint">Email cannot be changed. Contact support if needed.</div>}
                   </div>
                   <div className="form-group">
                     <label className="form-label">Phone Number</label>
-                    <input {...regProfile("phone")} className="form-control" placeholder="+91 99999 99999" />
+                    <input {...regProfile("phone")} className="form-control" placeholder={isLearner ? "" : "+91 99999 99999"} />
                   </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                    <button type="submit" className="btn btn-primary" disabled={loadingProfile}>
-                      {loadingProfile ? "Saving..." : "Save Changes"}
-                    </button>
-                  </div>
+                  </fieldset>
+                  {!isLearner && (
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button type="submit" className="btn btn-primary" disabled={loadingProfile}>
+                        {loadingProfile ? "Saving..." : "Save Changes"}
+                      </button>
+                    </div>
+                  )}
                 </form>
               </div>
             </div>
@@ -209,6 +263,15 @@ export default function SettingsPage() {
             <div className="card">
               <div className="card-header"><span className="card-title">Change Password</span></div>
               <div className="card-body">
+                {isSchoolLearner ? (
+                  <div className="alert alert-info" style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <School size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <div>
+                      <strong>Your password is managed by your school.</strong>
+                      <div style={{ marginTop: 2 }}>If you forgot it or want a new one, ask your teacher to reset it.</div>
+                    </div>
+                  </div>
+                ) : (
                 <form onSubmit={submitPwd(onPasswordSubmit)}>
                   <div className="form-group">
                     <label className="form-label required">Current Password</label>
@@ -231,6 +294,7 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </form>
+                )}
 
                 <div style={{ marginTop: 28, paddingTop: 24, borderTop: "1px solid var(--border-color)" }}>
                   <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Security Tips</h3>

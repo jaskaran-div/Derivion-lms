@@ -44,7 +44,9 @@ export default function NotificationManager({ requiredRole }: NotificationManage
   const [presetRecipientId] = useState(() =>
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("recipientId") : null
   );
-  const [mode, setMode] = useState<"BULK" | "INDIVIDUAL">(presetRecipientId ? "INDIVIDUAL" : "BULK");
+  // Teachers notify their students in bulk only; picking an individual user is admin-only
+  const canSendIndividually = requiredRole === "ADMIN";
+  const [mode, setMode] = useState<"BULK" | "INDIVIDUAL">(presetRecipientId && canSendIndividually ? "INDIVIDUAL" : "BULK");
 
   const [formData, setFormData] = useState({
     title: "",
@@ -70,7 +72,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
 
   // Check URL query parameters for pre-selected recipient (e.g. from user table)
   useEffect(() => {
-    if (!presetRecipientId) return;
+    if (!presetRecipientId || !canSendIndividually) return;
     chatAPI
       .searchUsers(presetRecipientId)
       .then((res) => {
@@ -79,7 +81,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
         if (found) setSelectedRecipient(found);
       })
       .catch(() => {});
-  }, [presetRecipientId]);
+  }, [presetRecipientId, canSendIndividually]);
 
   // Search users debounce
   useEffect(() => {
@@ -419,6 +421,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
               </div>
 
               {/* Delivery Mode Pills */}
+              {canSendIndividually && (
               <div
                 style={{
                   display: "inline-flex",
@@ -472,6 +475,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                   <User size={14} /> Individual User
                 </button>
               </div>
+              )}
             </div>
 
             <div style={{ padding: "24px" }}>
