@@ -5,10 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/AppLayout";
 import { coursesAPI, quizAPI, apiErrorMessage } from "@/lib/api";
 import Link from "next/link";
-import { isAxiosError } from "axios";
 import toast from "react-hot-toast";
+import CourseDetailsEditor, { type EditableCourse } from "@/components/course/CourseDetailsEditor";
 import {
-  ArrowLeft, Plus, Trash2, Upload, ChevronDown, ChevronUp, FileText, Link2, HelpCircle, ToggleLeft, ToggleRight, GripVertical, Lock, Unlock, Film, Book,
+  ArrowLeft, Plus, Trash2, Upload, ChevronDown, ChevronUp, FileText, Link2, HelpCircle, ToggleLeft, ToggleRight, GripVertical, Lock, Unlock, Film, Book, Pencil, Check, X, Eye, EyeOff, ExternalLink,
 } from "lucide-react";
 
 type ContentType = "VIDEO" | "PDF" | "DOCUMENT" | "QUIZ" | "LINK";
@@ -23,9 +23,8 @@ interface QuizOption { id: string; title: string; isPublished: boolean; _count: 
 interface Section {
   id: string; title: string; order: number; isPublished: boolean; contents: Content[];
 }
-interface Course {
-  id: string; title: string; slug: string; status: string; price: number;
-  emiEnabled: boolean;
+interface Course extends EditableCourse {
+  slug: string; status: string;
   sections: Section[];
 }
 
@@ -55,8 +54,8 @@ export default function CourseEditPage() {
   const [addingContent, setAddingContent] = useState<{ sectionId: string; title: string; type: ContentType; assessmentId?: string } | null>(null);
   const [quizzes, setQuizzes] = useState<QuizOption[] | null>(null);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
-  const [emiEnabled, setEmiEnabled] = useState(false);
-  const [savingEmi, setSavingEmi] = useState(false);
+  // Inline rename of a section or lesson title
+  const [renaming, setRenaming] = useState<{ kind: "section" | "content"; id: string; title: string } | null>(null);
 
 
   // Load the quiz bank the first time the admin picks "Quiz" as a content type
@@ -70,11 +69,8 @@ export default function CourseEditPage() {
     return coursesAPI.adminGetOne(id as string)
       .then((res) => {
         setCourse(res.data.data);
-        setEmiEnabled(res.data.data.emiEnabled === true);
-        // Auto-expand all sections by default so admin sees all lessons
-        if (res.data.data.sections.length > 0) {
-        setExpandedSections(new Set(res.data.data.sections.map((s: Section) => s.id)));
-        }
+        // Auto-expand all sections the first time so the admin sees all lessons
+        setExpandedSections((prev) => (prev.size ? prev : new Set(res.data.data.sections.map((s: Section) => s.id))));
       })
       .catch(() => {
         toast.error("Failed to load course.");
@@ -86,25 +82,49 @@ export default function CourseEditPage() {
 
   useEffect(() => { if (id) loadCourse(); }, [id]);
 
-  const handleSaveEmi = async () => {
-    if (!course) return;
-    setSavingEmi(true);
+  const saveRename = async () => {
+    if (!renaming) return;
+    const title = renaming.title.trim();
+    if (!title) return toast.error("Title cannot be empty.");
     try {
-      const res = await coursesAPI.update(course.id, { emiEnabled });
-      setCourse((current) => current
-        ? { ...current, emiEnabled: res.data.data.emiEnabled === true }
-        : current);
-      setEmiEnabled(res.data.data.emiEnabled === true);
-      toast.success("EMI setting updated.");
-    } catch (err: unknown) {
-      const message = isAxiosError<{ message?: string }>(err)
-        ? err.response?.data?.message
-        : undefined;
-      toast.error(message || "Failed to update EMI setting.");
-    } finally {
-      setSavingEmi(false);
+      if (renaming.kind === "section") await coursesAPI.updateSection(renaming.id, { title });
+      else await coursesAPI.updateContent(renaming.id, { title });
+      setRenaming(null);
+      toast.success("Title updated.");
+      loadCourse();
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to rename."));
     }
   };
+
+  // Lesson toggles: free preview for visitors, and published (visible to learners)
+  const handleToggleContent = async (content: Content, field: "isFree" | "isPublished") => {
+    try {
+      await coursesAPI.updateContent(content.id, { [field]: !content[field] });
+      loadCourse();
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Failed to update lesson."));
+    }
+  };
+
+  const renameInput = (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flex: 1 }} onClick={(e) => e.stopPropagation()}>
+      <input
+        className="form-control"
+        style={{ height: 32, padding: "4px 10px", fontSize: 14 }}
+        value={renaming?.title ?? ""}
+        autoFocus
+        aria-label="New title"
+        onChange={(e) => setRenaming((r) => (r ? { ...r, title: e.target.value } : r))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") saveRename();
+          if (e.key === "Escape") setRenaming(null);
+        }}
+      />
+      <button className="btn btn-ghost btn-icon btn-sm" onClick={saveRename} aria-label="Save title"><Check size={14} color="var(--success)" /></button>
+      <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setRenaming(null)} aria-label="Cancel rename"><X size={14} /></button>
+    </span>
+  );
 
   const handleAddSection = async () => {
     if (!addingSectionTitle.trim()) return;
@@ -259,6 +279,9 @@ export default function CourseEditPage() {
           </div>
         </div>
         <div className="page-actions">
+          <Link href={`/courses/${course.slug}`} target="_blank" className="btn btn-secondary">
+            <ExternalLink size={16} /> View as learner
+          </Link>
           <button
             className={`btn ${course.status === "PUBLISHED" ? "btn-secondary" : "btn-success"}`}
             onClick={handlePublishCourse}
@@ -272,32 +295,7 @@ export default function CourseEditPage() {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-header"><span className="card-title">Payment Options</span></div>
-        <div className="card-body">
-          <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={emiEnabled}
-              onChange={(event) => setEmiEnabled(event.target.checked)}
-              disabled={savingEmi}
-              style={{ width: 16, height: 16, accentColor: "var(--primary)", cursor: "pointer" }}
-            />
-            Enable EMI for this course
-          </label>
-          <div className="form-hint" style={{ marginTop: 8 }}>
-            When enabled, eligible students may see supported EMI payment options at checkout. Availability depends on Razorpay, the payment provider and customer eligibility.
-          </div>
-          <button
-            className="btn btn-primary btn-sm"
-            style={{ marginTop: 14 }}
-            onClick={handleSaveEmi}
-            disabled={savingEmi || emiEnabled === course.emiEnabled}
-          >
-            {savingEmi ? "Saving..." : "Save EMI setting"}
-          </button>
-        </div>
-      </div>
+      <CourseDetailsEditor course={course} onSaved={loadCourse} />
 
       {/* Curriculum Builder */}
       <div className="card">
@@ -360,7 +358,9 @@ export default function CourseEditPage() {
                       <span style={{ fontSize: 13, color: "var(--gray-400)", fontWeight: 500 }}>
                         Section {si + 1}
                       </span>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{section.title}</span>
+                      {renaming?.kind === "section" && renaming.id === section.id ? renameInput : (
+                        <span style={{ fontWeight: 600, fontSize: 14 }}>{section.title}</span>
+                      )}
                       <span style={{ fontSize: 12, color: "var(--gray-400)", marginLeft: 4 }}>
                         ({section.contents.length} lessons)
                       </span>
@@ -369,6 +369,14 @@ export default function CourseEditPage() {
                       )}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        className="btn btn-ghost btn-icon btn-sm"
+                        onClick={() => setRenaming({ kind: "section", id: section.id, title: section.title })}
+                        title="Rename section"
+                        aria-label={`Rename section ${section.title}`}
+                      >
+                        <Pencil size={14} />
+                      </button>
                       <button
                         className="btn btn-ghost btn-icon btn-sm"
                         onClick={() => handleToggleSectionPublish(section.id, section.isPublished)}
@@ -406,10 +414,13 @@ export default function CourseEditPage() {
                             {contentTypeIcon(content.type)}
                           </div>
                           <div style={{ flex: 1, minWidth: 200 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--gray-800)" }}>
-                              {content.title}
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--gray-800)", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                              {renaming?.kind === "content" && renaming.id === content.id ? renameInput : content.title}
                               {content.isFree && (
                                 <span className="badge badge-success" style={{ marginLeft: 8, fontSize: 10 }}>Free Preview</span>
+                              )}
+                              {!content.isPublished && (
+                                <span className="badge badge-warning" style={{ marginLeft: 4, fontSize: 10 }}>Hidden</span>
                               )}
                               {content.duration && (
                                 <span style={{ fontSize: 11, color: "var(--gray-400)", marginLeft: 8 }}>
@@ -489,6 +500,32 @@ export default function CourseEditPage() {
                             </div>
                           )}
 
+                          <button
+                            className="btn btn-ghost btn-icon btn-sm"
+                            onClick={() => setRenaming({ kind: "content", id: content.id, title: content.title })}
+                            title="Rename lesson"
+                            aria-label={`Rename lesson ${content.title}`}
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          {content.type !== "QUIZ" && (
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: 11, padding: "2px 8px" }}
+                              onClick={() => handleToggleContent(content, "isFree")}
+                              title={content.isFree ? "Stop offering as a free preview" : "Let visitors watch this lesson for free"}
+                            >
+                              {content.isFree ? "Remove free preview" : "Make free preview"}
+                            </button>
+                          )}
+                          <button
+                            className="btn btn-ghost btn-icon btn-sm"
+                            onClick={() => handleToggleContent(content, "isPublished")}
+                            title={content.isPublished ? "Hide lesson from learners" : "Show lesson to learners"}
+                            aria-label={content.isPublished ? `Hide ${content.title}` : `Show ${content.title}`}
+                          >
+                            {content.isPublished ? <Eye size={13} color="var(--success)" /> : <EyeOff size={13} />}
+                          </button>
                           <button
                             className="btn btn-ghost btn-icon btn-sm"
                             onClick={() => handleDeleteContent(content.id)}
