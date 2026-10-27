@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 const prisma = require('../config/database');
+const { generatePassword } = require('../utils/credentials');
 
 const userCardSelect = {
   id: true,
@@ -604,9 +604,7 @@ const adminResetStudentPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password reset from chat is for student accounts.' });
     }
 
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-    let plainPassword = '';
-    for (let i = 0; i < 10; i++) plainPassword += chars[crypto.randomInt(0, chars.length)];
+    const plainPassword = generatePassword(thread.user.firstName, thread.user.lastName);
     const hashedPassword = await bcrypt.hash(plainPassword, 12);
 
     await prisma.user.update({

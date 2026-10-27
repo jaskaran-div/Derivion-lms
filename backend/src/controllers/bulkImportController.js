@@ -1,25 +1,9 @@
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 const prisma = require('../config/database');
+const { generateUsername, generatePassword, studentEmail } = require('../utils/credentials');
 const { logAudit } = require('./auditController');
 
 // ── helpers ─────────────────────────────────────────────────────────────────
-
-const generateUsername = async () => {
-  for (let i = 0; i < 20; i++) {
-    const username = `drv${crypto.randomInt(100000, 999999)}`;
-    const exists = await prisma.user.findUnique({ where: { username } });
-    if (!exists) return username;
-  }
-  return `drv${Date.now().toString().slice(-8)}`;
-};
-
-const generatePassword = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-  let pwd = '';
-  for (let i = 0; i < 10; i++) pwd += chars[crypto.randomInt(0, chars.length)];
-  return pwd;
-};
 
 /**
  * Parse a CSV text body into an array of row objects.
@@ -216,10 +200,10 @@ const importStudents = async (req, res) => {
           }
         }
 
-        const username = await generateUsername();
-        const plainPassword = generatePassword();
+        const username = await generateUsername(norm.firstName, norm.lastName);
+        const plainPassword = generatePassword(norm.firstName, norm.lastName);
         const hashedPassword = await bcrypt.hash(plainPassword, 12);
-        const email = `${username}@students.derivion.local`;
+        const email = studentEmail(username);
 
         const student = await prisma.user.create({
           data: {

@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 const prisma = require('../config/database');
+const { generateUsername, generatePassword, studentEmail } = require('../utils/credentials');
 
 const studentSelect = {
   id: true,
@@ -20,22 +20,6 @@ const studentSelect = {
   enrollments: {
     include: { course: { select: { id: true, title: true, slug: true } } },
   },
-};
-
-const generateUsername = async () => {
-  for (let i = 0; i < 12; i++) {
-    const username = `drv${crypto.randomInt(100000, 999999)}`;
-    const exists = await prisma.user.findUnique({ where: { username } });
-    if (!exists) return username;
-  }
-  return `drv${Date.now().toString().slice(-8)}`;
-};
-
-const generatePassword = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-  let pwd = '';
-  for (let i = 0; i < 10; i++) pwd += chars[crypto.randomInt(0, chars.length)];
-  return pwd;
 };
 
 const ensureOwnStudent = async (teacherId, studentId) => {
@@ -147,10 +131,10 @@ const createStudent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Provide guardian email or contact number.' });
     }
 
-    const username = await generateUsername();
-    const plainPassword = generatePassword();
+    const username = await generateUsername(firstName, lastName);
+    const plainPassword = generatePassword(firstName, lastName);
     const hashedPassword = await bcrypt.hash(plainPassword, 12);
-    const email = `${username}@students.derivion.local`;
+    const email = studentEmail(username);
 
     const student = await prisma.user.create({
       data: {
@@ -270,7 +254,7 @@ const resetStudentPassword = async (req, res) => {
     const student = await ensureOwnStudent(req.user.id, req.params.id);
     if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
 
-    const plainPassword = generatePassword();
+    const plainPassword = generatePassword(student.firstName, student.lastName);
     await prisma.user.update({
       where: { id: student.id },
       // Saved hashed; existing sessions are signed out so only the new password works
