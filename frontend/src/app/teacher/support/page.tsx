@@ -14,7 +14,7 @@ export default function TeacherSupportPage() {
           </p>
         </div>
       </div>
-      <UniversalChat hint="To request a student password reset, include the student ID (e.g. drv123456) and name in your chat with Admin." />
+      <UniversalChat hint="To request a student password reset, include the student ID (e.g. manvi@09) and name in your chat with Admin." />
     </AppLayout>
   );
 }

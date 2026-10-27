@@ -166,7 +166,7 @@ export default function LoginPage() {
                   {...register("email")}
                   type="text"
                   className={`form-control ${errors.email ? "error" : ""}`}
-                  placeholder="you@example.com or drv123456"
+                  placeholder="you@example.com or manvi@09"
                   autoComplete="username"
                 />
               </div>
