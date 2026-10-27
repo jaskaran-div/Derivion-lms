@@ -48,6 +48,7 @@ const {
 const { listAuditLogs, exportAuditLogs, recordClientActivity, logActivity } = require('../controllers/auditController');
 const { getNavIndicators, markReadByLink } = require('../controllers/navController');
 const { learnerEditBlocked } = require('../controllers/authController');
+const { notifyUsers, notifyUser } = require('../services/notify');
 const { listSessions, createSession, updateSession, deleteSession } = require('../controllers/mentorController');
 const prisma = require('../config/database');
 const { uploadToS3, generateS3Key } = require('../config/aws');
@@ -185,9 +186,10 @@ const sendNotification = async (req, res) => {
       type = 'INFO',
       link = '/dashboard',
       mode = 'BULK', // 'BULK' or 'INDIVIDUAL'
-      target = 'ALL', // 'ALL' | 'STUDENTS' | 'TEACHERS' | 'MY_STUDENTS'
+      target = 'ALL', // admin: 'ALL' | 'STUDENTS' | 'TEACHERS'; teachers always reach their own students
       recipientId,
       userIds,
+      sendEmail: alsoEmail = true, // mirror the notification by email (learners' guardians included)
     } = req.body;
 
     if (!title || !title.trim() || !message || !message.trim()) {
@@ -195,100 +197,50 @@ const sendNotification = async (req, res) => {
     }
 
     const isTeacher = req.user.role === 'TEACHER';
+    // Teachers can only reach the students they manage
+    const audience = isTeacher ? { role: 'STUDENT', createdById: req.user.id } : {};
+    const individual = mode === 'INDIVIDUAL' || recipientId || (Array.isArray(userIds) && userIds.length > 0);
 
-    // 1. INDIVIDUAL MODE (admins only — teachers send to their audience in bulk)
-    if (mode === 'INDIVIDUAL' || recipientId || (Array.isArray(userIds) && userIds.length > 0)) {
-      if (isTeacher) {
-        return res.status(403).json({ success: false, message: 'Teachers can send notifications to their students in bulk only.' });
-      }
-      const targetIds = Array.isArray(userIds) && userIds.length > 0
-        ? userIds
-        : (recipientId ? [recipientId] : []);
-
+    let where;
+    if (individual) {
+      const targetIds = Array.isArray(userIds) && userIds.length > 0 ? userIds : (recipientId ? [recipientId] : []);
       if (!targetIds.length) {
         return res.status(400).json({ success: false, message: 'Please select at least one recipient.' });
       }
-
-      // If teacher, they can notify students (or any active user)
-      const validUsers = await prisma.user.findMany({
-        where: {
-          id: { in: targetIds },
-          isActive: true,
-          ...(isTeacher ? { role: 'STUDENT' } : {}),
-        },
-        select: { id: true, firstName: true, lastName: true },
-      });
-
-      if (!validUsers.length) {
-        return res.status(404).json({ success: false, message: 'No valid active recipients found.' });
-      }
-
-      await prisma.notification.createMany({
-        data: validUsers.map((u) => ({
-          userId: u.id,
-          title: title.trim(),
-          message: message.trim(),
-          type: type || 'INFO',
-          link: link || '/dashboard',
-        })),
-      });
-
-      const recipientText = validUsers.length === 1
-        ? `${validUsers[0].firstName} ${validUsers[0].lastName}`
-        : `${validUsers.length} selected recipients`;
-
-      return res.json({
-        success: true,
-        message: `Notification sent to ${recipientText}! 🔔`,
-        count: validUsers.length,
-      });
-    }
-
-    // 2. BULK MODE
-    let whereClause = { isActive: true };
-    if (isTeacher) {
-      if (target === 'MY_STUDENTS') {
-        whereClause.createdById = req.user.id;
-        whereClause.role = 'STUDENT';
-      } else {
-        whereClause.role = 'STUDENT';
-      }
+      where = { id: { in: targetIds.map(String) }, isActive: true, ...audience };
+    } else if (isTeacher) {
+      where = { isActive: true, ...audience };
     } else {
-      // Admin
-      if (target === 'STUDENTS') whereClause.role = 'STUDENT';
-      else if (target === 'TEACHERS') whereClause.role = 'TEACHER';
-      else if (target === 'ALL') {
-        whereClause.id = { not: req.user.id };
-      }
+      where = {
+        isActive: true,
+        ...(target === 'STUDENTS' && { role: 'STUDENT' }),
+        ...(target === 'TEACHERS' && { role: 'TEACHER' }),
+        ...(target === 'ALL' && { id: { not: req.user.id } }),
+      };
     }
 
-    const recipients = await prisma.user.findMany({
-      where: whereClause,
-      select: { id: true },
-    });
-
+    const recipients = await prisma.user.findMany({ where, select: { id: true, firstName: true, lastName: true } });
     if (!recipients.length) {
-      return res.json({ success: true, message: 'No recipients found matching target criteria.', count: 0 });
+      return individual
+        ? res.status(404).json({ success: false, message: isTeacher ? 'Select students from your own student list.' : 'No valid active recipients found.' })
+        : res.json({ success: true, message: 'No recipients found matching target criteria.', count: 0 });
     }
 
-    await prisma.notification.createMany({
-      data: recipients.map((u) => ({
-        userId: u.id,
-        title: title.trim(),
-        message: message.trim(),
-        type: type || 'INFO',
-        link: link || '/dashboard',
-      })),
-    });
+    const { emailed } = await notifyUsers(
+      recipients.map((u) => u.id),
+      { title: title.trim(), message: message.trim(), type: type || 'INFO', link: link || '/dashboard' },
+      { email: alsoEmail !== false }
+    );
 
-    const targetLabel = isTeacher
-      ? 'students'
-      : (target === 'STUDENTS' ? 'students' : (target === 'TEACHERS' ? 'teachers' : 'all users'));
+    const who = recipients.length === 1
+      ? `${recipients[0].firstName} ${recipients[0].lastName}`
+      : `${recipients.length} ${isTeacher || target === 'STUDENTS' ? 'students' : target === 'TEACHERS' ? 'teachers' : individual ? 'recipients' : 'users'}`;
 
     return res.json({
       success: true,
-      message: `Notification sent to ${recipients.length} ${targetLabel}! 🔔`,
+      message: `Notification sent to ${who}${emailed ? ` and emailed to ${emailed} address${emailed === 1 ? '' : 'es'}` : ''}! 🔔`,
       count: recipients.length,
+      emailed,
     });
   } catch (error) {
     console.error('Send notification error:', error);
@@ -305,7 +257,7 @@ router.get('/notifications/history', ...staffAuth, async (req, res) => {
   try {
     const isTeacher = req.user.role === 'TEACHER';
     const where = isTeacher
-      ? { user: { role: 'STUDENT' } }
+      ? { user: { role: 'STUDENT', createdById: req.user.id } }
       : {};
 
     const recent = await prisma.notification.findMany({

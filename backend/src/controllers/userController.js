@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const { logAudit } = require('./auditController');
+const { notifyEnrollment } = require('../services/notify');
 
 // GET /api/admin/users
 const getUsers = async (req, res) => {
@@ -180,6 +181,7 @@ const enrollUser = async (req, res) => {
 
     const enrollment = await prisma.enrollment.create({ data: { userId, courseId } });
     await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
+    notifyEnrollment(userId, courseId).catch(() => {});
 
     res.status(201).json({ success: true, message: 'User enrolled.', data: enrollment });
   } catch (error) {

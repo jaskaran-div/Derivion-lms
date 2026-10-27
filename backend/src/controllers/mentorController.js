@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const { notifyUsers } = require('../services/notify');
 
 const getStatus = (s, now = new Date()) => {
   if (now < s.startTime) return 'UPCOMING';
@@ -52,15 +53,13 @@ const notifyEnrolled = async (session) => {
   });
   if (enrollments.length === 0) return;
   const when = session.startTime.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
-  await prisma.notification.createMany({
-    data: enrollments.map((e) => ({
-      userId: e.userId,
-      title: `New mentor session: ${session.title}`,
-      message: `${session.mentorName} is hosting a live session for ${session.course.title} on ${when}.`,
-      type: 'INFO',
-      link: '/mentors',
-    })),
-  });
+  // Also emailed, so learners (and guardians) see the date in their inbox
+  await notifyUsers(enrollments.map((e) => e.userId), {
+    title: `New mentor session: ${session.title}`,
+    message: `${session.mentorName} is hosting a live session for ${session.course.title} on ${when}.`,
+    type: 'INFO',
+    link: '/mentors',
+  }, { email: true });
 };
 
 // GET /mentor-sessions — grouped into live / upcoming / past, scoped to the user's courses

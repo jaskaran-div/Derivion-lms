@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useNow } from "@/lib/useNow";
 import NotificationHistory from "./NotificationHistory";
+import TeacherAudiencePicker, { type PickedStudent } from "./TeacherAudiencePicker";
 import { notifTypes, adminAudienceOptions, teacherAudienceOptions, adminTemplates, teacherTemplates } from "./notificationConfig";
 
 interface UserProfile {
@@ -64,6 +65,13 @@ export default function NotificationManager({ requiredRole }: NotificationManage
   const searchResults = trimmedQuery && searchState.q === trimmedQuery ? searchState.results : [];
   const searching = mode === "INDIVIDUAL" && Boolean(trimmedQuery) && searchState.q !== trimmedQuery;
   const [selectedRecipient, setSelectedRecipient] = useState<UserProfile | null>(null);
+
+  // Teachers: all of their students, or hand-picked ones
+  const isTeacher = requiredRole === "TEACHER";
+  const [teacherAudience, setTeacherAudience] = useState<"ALL" | "SELECTED">("ALL");
+  const [pickedStudents, setPickedStudents] = useState<PickedStudent[]>([]);
+  // Also email it (learners' guardians included); on by default
+  const [alsoEmail, setAlsoEmail] = useState(true);
 
   // Sent History
   const [history, setHistory] = useState<SentNotification[]>([]);
@@ -129,8 +137,12 @@ export default function NotificationManager({ requiredRole }: NotificationManage
       return;
     }
 
-    if (mode === "INDIVIDUAL" && !selectedRecipient) {
+    if (!isTeacher && mode === "INDIVIDUAL" && !selectedRecipient) {
       toast.error("Please select a recipient before sending.");
+      return;
+    }
+    if (isTeacher && teacherAudience === "SELECTED" && pickedStudents.length === 0) {
+      toast.error("Select at least one student.");
       return;
     }
 
@@ -143,16 +155,27 @@ export default function NotificationManager({ requiredRole }: NotificationManage
         link: string;
         mode: "BULK" | "INDIVIDUAL";
         recipientId?: string;
+        userIds?: string[];
         target?: string;
+        sendEmail: boolean;
       } = {
         title: formData.title.trim(),
         message: formData.message.trim(),
         type: formData.type,
         link: formData.link.trim() || "/dashboard",
         mode,
+        sendEmail: alsoEmail,
       };
 
-      if (mode === "INDIVIDUAL") {
+      if (isTeacher) {
+        if (teacherAudience === "SELECTED") {
+          payload.mode = "INDIVIDUAL";
+          payload.userIds = pickedStudents.map((s) => s.id);
+        } else {
+          payload.mode = "BULK";
+          payload.target = "MY_STUDENTS";
+        }
+      } else if (mode === "INDIVIDUAL") {
         payload.recipientId = selectedRecipient?.id;
       } else {
         payload.target = formData.target;
@@ -171,6 +194,7 @@ export default function NotificationManager({ requiredRole }: NotificationManage
       });
       setSelectedRecipient(null);
       setSearchQuery("");
+      setPickedStudents([]);
 
       // Refresh sent history
       loadHistory();
@@ -480,7 +504,14 @@ export default function NotificationManager({ requiredRole }: NotificationManage
 
             <div style={{ padding: "24px" }}>
               {/* Delivery Target Section */}
-              {mode === "BULK" ? (
+              {isTeacher ? (
+                <TeacherAudiencePicker
+                  audience={teacherAudience}
+                  onAudienceChange={setTeacherAudience}
+                  selected={pickedStudents}
+                  onSelectedChange={setPickedStudents}
+                />
+              ) : mode === "BULK" ? (
                 <div style={{ marginBottom: 24 }}>
                   <label
                     style={{
@@ -1056,6 +1087,22 @@ export default function NotificationManager({ requiredRole }: NotificationManage
                   </div>
                 </div>
               </div>
+
+              {/* Email copy */}
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16, cursor: "pointer", fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={alsoEmail}
+                  onChange={(e) => setAlsoEmail(e.target.checked)}
+                  style={{ width: 16, height: 16, marginTop: 2, accentColor: "var(--primary)" }}
+                />
+                <span>
+                  <strong>Also send by email</strong>
+                  <span style={{ display: "block", fontSize: 12, color: "#64748b" }}>
+                    Each recipient gets an email copy. For students, their guardian&apos;s email is included (school learner IDs have no inbox of their own).
+                  </span>
+                </span>
+              </label>
 
               {/* Submit Button */}
               <button

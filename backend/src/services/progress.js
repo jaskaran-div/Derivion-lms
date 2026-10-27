@@ -3,6 +3,7 @@
  */
 const crypto = require('crypto');
 const prisma = require('../config/database');
+const { notifyUser } = require('./notify');
 
 // Enrollment states that grant access to course content
 const ACCESS_STATUSES = ['ACTIVE', 'COMPLETED'];
@@ -23,15 +24,13 @@ const issueCertificate = async (userId, courseId) => {
     try {
       const cert = await prisma.certificate.create({ data: { userId, courseId, certificateNo: newCertificateNo() } });
       const course = await prisma.course.findUnique({ where: { id: courseId }, select: { title: true } });
-      await prisma.notification.create({
-        data: {
-          userId,
-          title: 'Certificate earned!',
-          message: `You completed "${course?.title || 'your course'}". Your certificate is ready to download.`,
-          type: 'SUCCESS',
-          link: '/certificates',
-        },
-      }).catch(() => {});
+      // Also emailed (to the learner and their guardian)
+      await notifyUser(userId, {
+        title: 'Certificate earned!',
+        message: `You completed "${course?.title || 'your course'}". Your certificate is ready to download.`,
+        type: 'SUCCESS',
+        link: '/certificates',
+      }, { email: true }).catch(() => {});
       return cert;
     } catch (err) {
       if (err.code !== 'P2002') throw err;

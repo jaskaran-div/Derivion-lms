@@ -13,6 +13,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
         </Link>
         <nav className="public-nav" aria-label="Main">
           <Link href="/courses">Courses</Link>
+          <Link href="/register">Sign up</Link>
           <Link href="/login" className="btn btn-dark btn-sm">Log in</Link>
         </nav>
       </header>

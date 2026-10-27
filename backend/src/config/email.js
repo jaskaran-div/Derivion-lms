@@ -1,9 +1,14 @@
 const nodemailer = require('nodemailer');
 
+// Only SMTP_USER and SMTP_PASS are required: the server defaults to Gmail and the sender to SMTP_USER
+process.env.APP_NAME = process.env.APP_NAME || 'Derivion LMS';
+process.env.APP_URL = process.env.APP_URL || (process.env.CLIENT_URL || 'http://localhost:3000').split(',')[0].trim();
+const SMTP_PORT = parseInt(process.env.SMTP_PORT, 10) || 587;
+
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT),
-  secure: false,
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: SMTP_PORT,
+  secure: SMTP_PORT === 465,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
@@ -112,6 +117,25 @@ const emailTemplates = {
       </body></html>`,
   }),
 
+  // Any in-app notification, mirrored by email. forGuardian: written to a learner's parent/guardian.
+  notification: ({ name, title, message, link, forGuardian = false }) => ({
+    subject: `${title} — ${process.env.APP_NAME}`,
+    html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+      <body style="font-family: Arial, sans-serif; background: #f4f5f8; margin: 0; padding: 0;">
+        <div style="max-width: 560px; margin: 40px auto; background: #fff; border-radius: 16px; overflow: hidden;">
+          <div style="background: #0f1115; padding: 24px; text-align: center; color: #fff; font-size: 20px; font-weight: 700;">${esc(process.env.APP_NAME)}</div>
+          <div style="padding: 32px; color: #343a46; line-height: 1.7; font-size: 15px;">
+            <p>Hi ${esc(forGuardian ? 'there' : name)},</p>
+            ${forGuardian ? `<p style="color: #6b7280; font-size: 13px;">You are receiving this as the guardian of <strong>${esc(name)}</strong>.</p>` : ''}
+            <h2 style="font-size: 18px; color: #0f1115; margin: 16px 0 8px;">${esc(title)}</h2>
+            <p style="white-space: pre-line;">${esc(message)}</p>
+            ${link ? `<p style="text-align: center; margin-top: 24px;"><a href="${esc(/^https?:\/\//.test(link) ? link : process.env.APP_URL + link)}" style="display: inline-block; background: #0f1115; color: #fff; padding: 12px 28px; border-radius: 999px; text-decoration: none; font-weight: 600;">Open ${esc(process.env.APP_NAME)}</a></p>` : ''}
+          </div>
+          <div style="padding: 16px 32px; text-align: center; color: #9ca3af; font-size: 12px; border-top: 1px solid #f0f1f4;">You received this email because you have an account on ${esc(process.env.APP_NAME)}.</div>
+        </div>
+      </body></html>`,
+  }),
+
   emailOtp: (rawFirstName, otp, firstName = esc(rawFirstName)) => ({
     subject: `${otp} is your ${process.env.APP_NAME} verification code`,
     html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
@@ -168,13 +192,13 @@ const emailTemplates = {
   }),
 };
 
-const emailConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER);
+const emailConfigured = () => Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
 
 // Resolves true when the email was handed to the mail server
 const sendEmail = async ({ to, subject, html }) => {
   try {
     await transporter.sendMail({
-      from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
+      from: `"${process.env.FROM_NAME || process.env.APP_NAME}" <${process.env.FROM_EMAIL || process.env.SMTP_USER}>`,
       to,
       subject,
       html,

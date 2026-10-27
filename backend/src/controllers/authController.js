@@ -128,35 +128,60 @@ const publicUser = (user) => ({
   isEmailVerified: user.isEmailVerified,
 });
 
-// POST /api/auth/register
+// POST /api/auth/register — individual learners sign up themselves and confirm their email with a code.
+// The account stays unusable until the code is entered (login asks for a new code until then).
 const register = async (req, res) => {
   try {
     const { email, password, firstName, lastName, phone } = req.body;
     const { enrollment } = await getSettings();
 
     if (!enrollment.allowSelfRegistration) {
-      return res.status(403).json({ success: false, message: 'Self registration is currently disabled. Contact your school or administrator.' });
+      return res.status(403).json({ success: false, message: 'Sign-up is currently turned off. Contact your school or administrator.' });
+    }
+    // Without email we can't verify the address, so no account is created
+    if (!emailConfigured()) {
+      return res.status(503).json({ success: false, message: 'Sign-up is temporarily unavailable. Please try again later.' });
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (existing) {
-      return res.status(409).json({ success: false, message: 'Email already registered.' });
+      // Started signing up but never entered the code: point them to login, which sends a fresh code
+      const pending = existing.role === 'STUDENT' && !existing.isEmailVerified && !existing.lastLogin && !existing.createdById;
+      return res.status(409).json({
+        success: false,
+        code: pending ? 'VERIFICATION_PENDING' : 'EMAIL_TAKEN',
+        message: pending
+          ? 'You already started signing up with this email. Log in with your password to get a new verification code.'
+          : 'An account with this email already exists. Please log in.',
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const user = await prisma.user.create({
-      data: { email, password: hashedPassword, firstName, lastName, phone },
+      data: {
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        phone: phone ? String(phone).trim().slice(0, 30) : null,
+        role: 'STUDENT',
+      },
     });
 
-    await logAudit({ userId: user.id, action: 'USER_CREATED', targetId: user.id, targetType: 'user', req });
+    // The code could not be sent: remove the half-made account so the person can simply try again
+    if (!(await sendEmailOtp(user))) {
+      await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
+      return res.status(503).json({ success: false, message: 'We could not send the verification code to this email. Check the address and try again.' });
+    }
 
-    if (await needsEmailOtp(user)) return requireEmailOtp(res, user, 201);
+    await logAudit({ userId: user.id, action: 'USER_CREATED', targetId: user.id, targetType: 'user', details: { method: 'self_signup' }, req });
 
-    const { subject, html } = emailTemplates.welcome(firstName);
-    sendEmail({ to: email, subject, html });
-
-    return completeLogin(req, res, user, 201);
+    return res.status(201).json({
+      success: true,
+      message: `Account created. We sent a 6-digit code to ${maskEmail(user.email)}.`,
+      data: { otpRequired: true, otpToken: signOtpToken(user.id), email: maskEmail(user.email) },
+    });
   } catch (error) {
     console.error('Register error:', error);
     res.status(500).json({ success: false, message: 'Registration failed.' });

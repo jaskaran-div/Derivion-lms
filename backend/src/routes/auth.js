@@ -13,10 +13,11 @@ const { validate } = require('../middleware/errorHandler');
 router.post(
   '/register',
   [
-    body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+    body('email').trim().toLowerCase().isEmail().withMessage('Valid email required'),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('firstName').trim().notEmpty().isLength({ max: 100 }).withMessage('First name is required'),
     body('lastName').trim().notEmpty().isLength({ max: 100 }).withMessage('Last name is required'),
+    body('phone').optional({ values: 'falsy' }).trim().matches(/^[+\d][\d\s-]{6,19}$/).withMessage('Enter a valid phone number'),
   ],
   validate,
   register

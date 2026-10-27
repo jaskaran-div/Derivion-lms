@@ -14,7 +14,7 @@ const DEFAULTS = {
     language: 'English',
   },
   enrollment: {
-    allowSelfRegistration: false, // accounts are issued by admins / teachers
+    allowSelfRegistration: true, // individual learners may sign up (verified by email code); schools issue their own accounts
     requireEmailVerification: false,
     allowGuestBrowsing: true,
     maxEnrollmentsPerUser: 50,

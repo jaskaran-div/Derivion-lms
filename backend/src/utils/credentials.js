@@ -19,8 +19,10 @@ const generateUsername = async (firstName, lastName) => {
   return `${base}@${Date.now().toString().slice(-6)}`;
 };
 
-// Internal placeholder email (students log in with the username)
-const studentEmail = (username) => `${username.replace('@', '.')}@students.derivion.local`;
+// Internal placeholder email (students log in with the username); never emailed or shown
+const PLACEHOLDER_EMAIL_DOMAIN = '@students.derivion.local';
+const studentEmail = (username) => `${username.replace('@', '.')}${PLACEHOLDER_EMAIL_DOMAIN}`;
+const isPlaceholderEmail = (email) => typeof email === 'string' && email.toLowerCase().endsWith(PLACEHOLDER_EMAIL_DOMAIN);
 
 // Memorable password from the name, e.g. "Manvi@4827"
 const generatePassword = (firstName, lastName) => {
@@ -28,4 +30,4 @@ const generatePassword = (firstName, lastName) => {
   return `${base.charAt(0).toUpperCase()}${base.slice(1)}@${digits(4)}`;
 };
 
-module.exports = { generateUsername, generatePassword, studentEmail };
+module.exports = { generateUsername, generatePassword, studentEmail, isPlaceholderEmail };

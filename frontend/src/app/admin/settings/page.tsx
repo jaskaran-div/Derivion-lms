@@ -139,8 +139,7 @@ export default function AdminSettingsPage() {
               <div className="card-header"><span className="card-title">Enrollment Settings</span></div>
               <div className="card-body">
                 {[
-                  { key: "allowSelfRegistration", label: "Allow Self Registration", desc: "Students can create their own accounts" },
-                  { key: "requireEmailVerification", label: "Require Email Verification", desc: "New accounts must verify email before accessing courses" },
+                  { key: "allowSelfRegistration", label: "Allow Learner Sign-up", desc: "Individual learners can create their own accounts. Their email is verified with a one-time code." },
                   { key: "allowGuestBrowsing", label: "Allow Guest Browsing", desc: "Visitors can browse courses without signing in" },
                 ].map(setting => (
                   <div

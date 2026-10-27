@@ -1,16 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import toast from "react-hot-toast";
-import { Eye, EyeOff, Mail, Lock, ArrowRight, ShieldCheck } from "lucide-react";
-import { apiErrorMessage, authAPI } from "@/lib/api";
+import { Eye, EyeOff, Mail, Lock, ArrowRight } from "lucide-react";
+import { apiErrorMessage, authAPI, settingsAPI } from "@/lib/api";
 import { homePathFor, useAuthStore, type User } from "@/store/authStore";
-import { isAxiosError } from "axios";
 import BrandLogo from "@/components/layout/BrandLogo";
+import EmailOtpStep, { type OtpChallenge } from "@/components/auth/EmailOtpStep";
 
 // Only same-site relative paths are allowed as post-login destinations
 const safeNext = () => {
@@ -32,8 +33,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   // Individual learners confirm their email with a 6-digit code after the password step
-  const [otp, setOtp] = useState<{ token: string; email: string } | null>(null);
-  const [otpCode, setOtpCode] = useState("");
+  const [otp, setOtp] = useState<OtpChallenge | null>(null);
+  // Sign-up link only when the admin allows learners to create accounts
+  const [signupOpen, setSignupOpen] = useState(false);
+  useEffect(() => {
+    settingsAPI.getPublic().then((res) => setSignupOpen(res.data.data.allowSelfRegistration)).catch(() => {});
+  }, []);
   // Signed out because the same learner account signed in on another device
   const [replacedSession] = useState(
     () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("reason") === "other-device"
@@ -58,7 +63,6 @@ export default function LoginPage() {
       const res = await authAPI.login(data);
       if (res.data.data.otpRequired) {
         setOtp({ token: res.data.data.otpToken, email: res.data.data.email });
-        setOtpCode("");
         toast.success(res.data.message);
         return;
       }
@@ -67,32 +71,6 @@ export default function LoginPage() {
       toast.error(apiErrorMessage(err, "Login failed. Please try again."));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const submitOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!otp || otpCode.length !== 6) return;
-    setLoading(true);
-    try {
-      const res = await authAPI.verifyOtp(otp.token, otpCode);
-      finishLogin(res.data.data);
-    } catch (err) {
-      if (isAxiosError<{ code?: string }>(err) && err.response?.data?.code === "OTP_SESSION_EXPIRED") setOtp(null);
-      toast.error(apiErrorMessage(err, "Could not verify the code."));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resendOtp = async () => {
-    if (!otp) return;
-    try {
-      const res = await authAPI.resendOtp(otp.token);
-      setOtp({ token: res.data.data.otpToken, email: res.data.data.email });
-      toast.success("A new code is on its way.");
-    } catch (err) {
-      toast.error(apiErrorMessage(err, "Could not send a new code."));
     }
   };
 
@@ -176,39 +154,7 @@ export default function LoginPage() {
           )}
 
           {otp ? (
-            <form onSubmit={submitOtp}>
-              <div className="form-group">
-                <label className="form-label required" htmlFor="otp-code">Verification code</label>
-                <div className="input-group">
-                  <ShieldCheck size={16} className="input-group-icon" />
-                  <input
-                    id="otp-code"
-                    className="form-control"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    placeholder="000000"
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                    style={{ letterSpacing: 6, fontSize: 18, fontWeight: 600 }}
-                    autoFocus
-                  />
-                </div>
-                <div className="form-hint">The code expires in 10 minutes. Check your spam folder if you can&apos;t find it.</div>
-              </div>
-              <button
-                type="submit"
-                className="btn btn-primary w-full"
-                disabled={loading || otpCode.length !== 6}
-                style={{ justifyContent: "center", marginTop: 8, height: 46, fontSize: 15 }}
-              >
-                {loading ? "Verifying…" : <>Verify &amp; sign in <ArrowRight size={16} /></>}
-              </button>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, fontSize: 13 }}>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOtp(null)}>Use a different account</button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={resendOtp}>Resend code</button>
-              </div>
-            </form>
+            <EmailOtpStep challenge={otp} onChallengeChange={setOtp} onVerified={finishLogin} onCancel={() => setOtp(null)} />
           ) : (
           <form onSubmit={handleSubmit(onSubmit)}>
             <div className="form-group">
@@ -285,8 +231,13 @@ export default function LoginPage() {
           </form>
           )}
 
-          <p style={{ marginTop: 20, fontSize: 13, color: "var(--gray-500)", textAlign: "center" }}>
-            Accounts are created by your school or administrator. Forgot your password? Ask your teacher or administrator to reset it.
+          {signupOpen && !otp && (
+            <p style={{ marginTop: 20, fontSize: 14, color: "var(--gray-600)", textAlign: "center" }}>
+              New to Derivion? <Link href="/register" style={{ color: "var(--primary)", fontWeight: 600 }}>Create an account</Link>
+            </p>
+          )}
+          <p style={{ marginTop: 12, fontSize: 13, color: "var(--gray-500)", textAlign: "center" }}>
+            Learning through a school? Use the Learner ID your teacher gave you — your school creates and resets school accounts.
           </p>
         </div>
       </div>

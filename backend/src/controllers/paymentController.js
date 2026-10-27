@@ -4,6 +4,8 @@ const prisma = require('../config/database');
 const { sendEmail, emailTemplates } = require('../config/email');
 const { getCheckoutConfigurationId } = require('../utils/razorpayConfig');
 const { getSettings } = require('../services/settings');
+const { notifyUser } = require('../services/notify');
+const { isPlaceholderEmail } = require('../utils/credentials');
 
 const getRazorpayInstance = () => {
   const key_id = process.env.RAZORPAY_KEY_ID;
@@ -194,7 +196,7 @@ const completePayment = async (payment, { razorpayPaymentId, razorpaySignature, 
   if (user && course) {
     try {
       const { subject, html } = emailTemplates.enrollmentConfirmation(user.firstName, course.title);
-      sendEmail({ to: user.email, subject, html });
+      if (!isPlaceholderEmail(user.email)) sendEmail({ to: user.email, subject, html });
     } catch (e) {
       console.error('Failed to send enrollment email:', e);
     }
@@ -224,15 +226,12 @@ const applyRefund = async (payment, refundId) => {
       data: { status: 'REFUNDED' },
     });
   }
-  await prisma.notification.create({
-    data: {
-      userId: payment.userId,
-      title: 'Refund processed',
-      message: `Your payment of ₹${Number(payment.amount).toLocaleString('en-IN')} has been refunded.`,
-      type: 'INFO',
-      link: '/payments',
-    },
-  }).catch(() => {});
+  await notifyUser(payment.userId, {
+    title: 'Refund processed',
+    message: `Your payment of ₹${Number(payment.amount).toLocaleString('en-IN')} has been refunded.`,
+    type: 'INFO',
+    link: '/payments',
+  }, { email: true }).catch(() => {});
   return true;
 };
 

@@ -7,6 +7,7 @@
 
 const prisma = require('../config/database');
 const { AUDIT_RETENTION_DAYS, AUDIT_WARNING_DAYS } = require('../controllers/auditController');
+const { notifyUsers } = require('../services/notify');
 
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -39,15 +40,13 @@ const warnAdminsOfAuditPurge = async (now) => {
 
   const admins = await prisma.user.findMany({ where: { role: 'ADMIN', isActive: true }, select: { id: true } });
   const by = new Date(now.getTime() + AUDIT_WARNING_DAYS * DAY_MS).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  await prisma.notification.createMany({
-    data: admins.map((a) => ({
-      userId: a.id,
-      title: 'Audit logs will be deleted soon',
-      message: `${expiring.toLocaleString('en-IN')} audit log entries are over ${AUDIT_RETENTION_DAYS - AUDIT_WARNING_DAYS} days old and will be deleted automatically by ${by}. Export them from Audit Logs if you need a copy.`,
-      type: 'WARNING',
-      link: '/admin/audit-logs',
-    })),
-  });
+  // In the app and by email, so the warning isn't missed
+  await notifyUsers(admins.map((a) => a.id), {
+    title: 'Audit logs will be deleted soon',
+    message: `${expiring.toLocaleString('en-IN')} audit log entries are over ${AUDIT_RETENTION_DAYS - AUDIT_WARNING_DAYS} days old and will be deleted automatically by ${by}. Export them from Audit Logs if you need a copy.`,
+    type: 'WARNING',
+    link: '/admin/audit-logs',
+  }, { email: true });
   // The alert sent now becomes "previous" at the next alert, which is when its entries may be purged
   previous = latest;
   latest = now;
