@@ -21,14 +21,17 @@ const matchPayment = (where) => db.payments.find((p) =>
   (where.OR || [where]).some((cond) => Object.entries(cond).every(([k, v]) => p[k] === v)));
 
 const prisma = {
+  // The code under test now wraps related writes in a transaction; the in-memory fake just runs the callback
+  $transaction: async (fn) => fn(prisma),
   payment: {
     findFirst: async ({ where }) => matchPayment(where) || null,
     findUnique: async ({ where }) => db.payments.find((p) => p.id === where.id) || null,
     update: async ({ where, data }) => Object.assign(db.payments.find((p) => p.id === where.id), data),
     updateMany: async ({ where, data }) => {
       const p = db.payments.find((x) => x.id === where.id);
-      const allowed = typeof where.status === 'string' ? [where.status] : where.status.in;
-      if (!p || !allowed.includes(p.status)) return { count: 0 };
+      const w = where.status;
+      const ok = typeof w === 'string' ? p?.status === w : w.in ? w.in.includes(p?.status) : p?.status !== w.not;
+      if (!p || !ok) return { count: 0 };
       Object.assign(p, data);
       return { count: 1 };
     },

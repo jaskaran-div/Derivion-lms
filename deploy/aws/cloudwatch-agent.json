@@ -1,0 +1,25 @@
+{
+  "agent": { "metrics_collection_interval": 60, "run_as_user": "root" },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          { "file_path": "/home/ubuntu/.pm2/logs/lms-worker-out.log",   "log_group_name": "derivion/lms/worker", "log_stream_name": "{instance_id}", "retention_in_days": 30 },
+          { "file_path": "/home/ubuntu/.pm2/logs/lms-worker-error.log", "log_group_name": "derivion/lms/worker", "log_stream_name": "{instance_id}-error", "retention_in_days": 30 },
+          { "file_path": "/home/ubuntu/.pm2/logs/*lms*api*-out.log",    "log_group_name": "derivion/lms/api", "log_stream_name": "{instance_id}", "retention_in_days": 30 },
+          { "file_path": "/home/ubuntu/.pm2/logs/operations-api-out.log",   "log_group_name": "derivion/operations/api", "log_stream_name": "{instance_id}", "retention_in_days": 30 },
+          { "file_path": "/home/ubuntu/.pm2/logs/operations-worker-out.log", "log_group_name": "derivion/operations/worker", "log_stream_name": "{instance_id}", "retention_in_days": 30 },
+          { "file_path": "/var/log/nginx/error.log",                    "log_group_name": "derivion/nginx/error", "log_stream_name": "{instance_id}", "retention_in_days": 30 },
+          { "file_path": "/home/ubuntu/backups/backup.log",             "log_group_name": "derivion/backups", "log_stream_name": "{instance_id}", "retention_in_days": 90 }
+        ]
+      }
+    }
+  },
+  "metrics": {
+    "append_dimensions": { "InstanceId": "${aws:InstanceId}" },
+    "metrics_collected": {
+      "mem":  { "measurement": ["mem_used_percent"] },
+      "disk": { "measurement": ["used_percent"], "resources": ["/"] }
+    }
+  }
+}

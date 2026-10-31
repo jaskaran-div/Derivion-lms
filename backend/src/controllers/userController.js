@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const lifecycle = require('../services/lifecycle');
 const { logAudit } = require('./auditController');
 const { notifyEnrollment } = require('../services/notify');
 
@@ -135,6 +136,13 @@ const updateUser = async (req, res) => {
         details: { action: isActive ? 'ACCOUNT_ACTIVATED' : 'ACCOUNT_DEACTIVATED' },
         req,
       });
+    }
+
+    // Identity details of a synchronized learner changed: tell Operations (no-op unless eligible and the integration is on)
+    try {
+      await lifecycle.onLearnerUpdated(prisma, await prisma.user.findUnique({ where: { id } }));
+    } catch (e) {
+      console.error('learner.updated not queued:', e.message);
     }
 
     res.json({ success: true, message: 'User updated.', data: user });

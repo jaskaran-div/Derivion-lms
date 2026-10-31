@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f5f8;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:600px;margin:32px auto;background:#ffffff;border-radius:14px;overflow:hidden;">
+    <div style="background:#0f1115;padding:26px;text-align:center;color:#ffffff;font-size:20px;font-weight:700;">{{appName}}</div>
+    <div style="padding:32px;color:#343a46;line-height:1.65;font-size:15px;">
+      <h2 style="margin:0 0 6px;color:#0f1115;font-size:20px;">Payment confirmed, {{firstName}}!</h2>
+      <p style="margin:0 0 18px;">Thank you for enrolling. Your payment was received and your place in the course is secured.</p>
+
+      <div style="background:#f0fdf4;border-left:4px solid #10b981;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 20px;">
+        <div style="font-size:17px;font-weight:700;color:#065f46;">{{courseTitle}}</div>
+        <div style="color:#374151;font-size:14px;margin-top:4px;">{{courseDetails}}</div>
+      </div>
+
+      <table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 22px;">
+        <tr><td style="padding:7px 0;color:#6b7280;">Enrollment ID</td><td style="padding:7px 0;text-align:right;font-weight:600;">{{enrollmentRef}}</td></tr>
+        <tr><td style="padding:7px 0;color:#6b7280;border-top:1px solid #eef0f3;">Amount paid</td><td style="padding:7px 0;text-align:right;font-weight:600;border-top:1px solid #eef0f3;">{{amount}}</td></tr>
+        <tr><td style="padding:7px 0;color:#6b7280;border-top:1px solid #eef0f3;">Payment status</td><td style="padding:7px 0;text-align:right;font-weight:600;color:#047857;border-top:1px solid #eef0f3;">{{paymentStatus}}</td></tr>
+        <tr><td style="padding:7px 0;color:#6b7280;border-top:1px solid #eef0f3;">Payment reference</td><td style="padding:7px 0;text-align:right;font-weight:600;border-top:1px solid #eef0f3;">{{paymentReference}}</td></tr>
+        <tr><td style="padding:7px 0;color:#6b7280;border-top:1px solid #eef0f3;">Invoice</td><td style="padding:7px 0;text-align:right;font-weight:600;border-top:1px solid #eef0f3;">{{invoiceNumber}} (attached PDF)</td></tr>
+      </table>
+
+      <h3 style="margin:0 0 6px;color:#0f1115;font-size:16px;">Next step: complete your onboarding</h3>
+      <p style="margin:0 0 16px;">{{onboardingIntro}}</p>
+      <p style="text-align:center;margin:0 0 14px;">
+        <a href="{{onboardingUrl}}" style="display:inline-block;background:#0f1115;color:#ffffff;padding:13px 30px;border-radius:999px;text-decoration:none;font-weight:600;">Complete onboarding</a>
+      </p>
+      <p style="margin:0 0 4px;color:#6b7280;font-size:13px;">This personal link is valid until {{expiresOn}} and can be submitted once. Please do not share it. If the button does not work, copy this address into your browser:</p>
+      <p style="margin:0 0 22px;color:#6b7280;font-size:12px;word-break:break-all;">{{onboardingUrl}}</p>
+
+      <p style="margin:0;">You can start learning right away from your dashboard.</p>
+    </div>
+    <div style="padding:16px 32px;text-align:center;color:#9ca3af;font-size:12px;border-top:1px solid #f0f1f4;">
+      You received this email because you purchased a course on {{appName}}.<br>{{supportLine}}
+    </div>
+  </div>
+</body>
+</html>

@@ -7,7 +7,7 @@ import { useAuthStore } from "@/store/authStore";
 import BrandLogo from "./BrandLogo";
 import { useNavIndicators } from "./useNavIndicators";
 import {
-  LayoutDashboard, BookOpen, Users, CreditCard, Settings, LogOut, ChevronDown, GraduationCap, Library, BarChart3, Bell, Search, MessageSquare, Award, Tag, PlusCircle, ListOrdered, Home, BookMarked, Building2, Upload, ScrollText, TrendingUp, Video, HelpCircle,
+  LayoutDashboard, BookOpen, Users, CreditCard, Settings, LogOut, ChevronDown, GraduationCap, Library, BarChart3, Bell, Search, MessageSquare, Award, Tag, PlusCircle, ListOrdered, Home, BookMarked, Building2, Upload, ScrollText, TrendingUp, Video, HelpCircle, Mail,
 } from "lucide-react";
 
 interface NavItem {
@@ -65,6 +65,7 @@ const adminNav: NavItem[] = [
     children: [
       { label: "Overview", href: "/admin/analytics", icon: <TrendingUp size={14} /> },
       { label: "Audit Logs", href: "/admin/audit-logs", icon: <ScrollText size={14} /> },
+      { label: "Emails & Sync", href: "/admin/emails", icon: <Mail size={14} /> },
     ],
   },
   {

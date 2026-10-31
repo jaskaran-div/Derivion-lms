@@ -517,9 +517,13 @@ model Enrollment {
   progressPercent Decimal          @default(0) @db.Decimal(5, 2)
   lastAccessedAt  DateTime?
   updatedAt       DateTime         @updatedAt
+  // Operations onboarding. Enrollments that predate the integration stay NOT_APPLICABLE; new purchases start ONBOARDING_PENDING.
+  onboardingStatus      String     @default("NOT_APPLICABLE")
+  onboardingCompletedAt DateTime?
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   course          Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  onboardingTokens OnboardingToken[]
 
   @@unique([userId, courseId])
   @@index([userId])
@@ -548,6 +552,7 @@ model Payment {
 
   user             User          @relation(fields: [userId], references: [id])
   course           Course?       @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  invoice          Invoice?
 
   @@index([userId])
   @@index([courseId])
@@ -792,4 +797,130 @@ model SiteSettings {
   updatedAt DateTime @updatedAt
 
   @@map("site_settings")
+}
+
+// ==================== LEARNER LIFECYCLE / OPERATIONS INTEGRATION ====================
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  DEAD // retries exhausted or permanently rejected: the dead-letter state
+}
+
+// Transactional outbox: written in the same transaction as the change it describes, delivered by the worker.
+model OutboxEvent {
+  id            String       @id @default(uuid())
+  eventId       String       @unique // deterministic per business fact (e.g. payment.successful:<paymentId>): deduplicates everywhere
+  type          String
+  aggregateType String
+  aggregateId   String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now())
+  lockedAt      DateTime?
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([aggregateType, aggregateId])
+  @@map("outbox_events")
+}
+
+enum EmailStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+// One row per email that must go out. dedupeKey makes "send this email" idempotent.
+model EmailLog {
+  id                String      @id @default(uuid())
+  dedupeKey         String      @unique
+  template          String
+  toEmail           String
+  subject           String?
+  userId            String?
+  enrollmentId      String?
+  data              Json        @default("{}") // template variables; never holds secrets or raw tokens
+  status            EmailStatus @default(PENDING)
+  attempts          Int         @default(0)
+  nextAttemptAt     DateTime    @default(now())
+  lockedAt          DateTime?
+  lastError         String?
+  providerMessageId String?
+  sentAt            DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([userId])
+  @@index([enrollmentId])
+  @@map("email_logs")
+}
+
+// Only the hash of the onboarding token is stored. The raw token is HMAC(ONBOARDING_TOKEN_SECRET, enrollmentId:nonce),
+// so it can be re-derived for email retries without ever being persisted.
+model OnboardingToken {
+  id           String     @id @default(uuid())
+  enrollmentId String
+  nonce        String
+  tokenHash    String     @unique
+  expiresAt    DateTime
+  usedAt       DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime   @default(now())
+
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentId])
+  @@map("onboarding_tokens")
+}
+
+// Snapshot of what was invoiced; the PDF is rendered from it (and cached once generated).
+model Invoice {
+  id               String   @id @default(uuid())
+  seq              Int      @unique @default(autoincrement())
+  invoiceNumber    String   @unique
+  paymentId        String   @unique
+  enrollmentId     String?
+  userId           String
+  learnerName      String
+  learnerEmail     String
+  courseTitle      String
+  amount           Decimal  @db.Decimal(10, 2)
+  currency         String   @default("INR")
+  paymentReference String?
+  issuedAt         DateTime @default(now())
+  pdf              Bytes?
+
+  payment          Payment  @relation(fields: [paymentId], references: [id])
+
+  @@index([userId])
+  @@map("invoices")
+}
+
+// Events received from Operations (deduplicated by eventId)
+model InboundEvent {
+  id         String   @id @default(uuid())
+  eventId    String   @unique
+  type       String
+  source     String   @default("operations")
+  payload    Json
+  receivedAt DateTime @default(now())
+
+  @@map("inbound_events")
+}
+
+// Replay protection for signed service requests
+model IntegrationNonce {
+  nonce     String   @id
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("integration_nonces")
 }

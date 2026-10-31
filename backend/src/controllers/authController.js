@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const prisma = require('../config/database');
 const { sendEmail, emailTemplates, emailConfigured } = require('../config/email');
 const { logAudit } = require('./auditController');
+const lifecycle = require('../services/lifecycle');
 const { getSettings } = require('../services/settings');
 const { isSchoolLearner } = require('../services/learners');
 
@@ -277,9 +278,14 @@ const verifyEmailOtp = async (req, res) => {
       });
     }
 
-    const verified = await prisma.user.update({
-      where: { id: user.id },
-      data: { isEmailVerified: true, emailVerifyToken: null, emailVerifyExpiry: null, emailOtpAttempts: 0 },
+    // The verification and its Operations sync event commit together (the outbox row is the durable promise)
+    const verified = await prisma.$transaction(async (tx) => {
+      const u = await tx.user.update({
+        where: { id: user.id },
+        data: { isEmailVerified: true, emailVerifyToken: null, emailVerifyExpiry: null, emailOtpAttempts: 0 },
+      });
+      await lifecycle.onLearnerVerified(tx, u);
+      return u;
     });
     await logAudit({ userId: user.id, action: 'ACTIVITY', details: { event: 'EMAIL_VERIFIED', method: 'otp' }, req });
     const { subject, html } = emailTemplates.welcome(user.firstName);
@@ -439,17 +445,20 @@ const resetPassword = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password: hashedPassword,
-        resetPasswordToken: null,
-        resetPasswordExpiry: null,
-        mustChangePassword: false,
-        passwordChangedAt: new Date(), // signs out every existing session
-        // Proving access to the inbox also verifies the email
-        isEmailVerified: true,
-      },
+    await prisma.$transaction(async (tx) => {
+      const u = await tx.user.update({
+        where: { id: user.id },
+        data: {
+          password: hashedPassword,
+          resetPasswordToken: null,
+          resetPasswordExpiry: null,
+          mustChangePassword: false,
+          passwordChangedAt: new Date(), // signs out every existing session
+          // Proving access to the inbox also verifies the email
+          isEmailVerified: true,
+        },
+      });
+      if (!user.isEmailVerified) await lifecycle.onLearnerVerified(tx, u);
     });
 
     await logAudit({ userId: user.id, action: 'PASSWORD_CHANGE', details: { method: 'reset' }, req });
@@ -470,9 +479,12 @@ const verifyEmail = async (req, res) => {
     if (!user) {
       return res.status(400).json({ success: false, message: 'This verification link is invalid or has expired.' });
     }
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { isEmailVerified: true, emailVerifyToken: null, emailVerifyExpiry: null },
+    await prisma.$transaction(async (tx) => {
+      const u = await tx.user.update({
+        where: { id: user.id },
+        data: { isEmailVerified: true, emailVerifyToken: null, emailVerifyExpiry: null },
+      });
+      if (!user.isEmailVerified) await lifecycle.onLearnerVerified(tx, u);
     });
     const { subject, html } = emailTemplates.welcome(user.firstName);
     sendEmail({ to: user.email, subject, html });

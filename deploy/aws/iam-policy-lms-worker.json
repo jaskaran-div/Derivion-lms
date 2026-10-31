@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LmsWorkerQueues",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": [
+        "arn:aws:sqs:<REGION>:<ACCOUNT_ID>:derivion-lms-events",
+        "arn:aws:sqs:<REGION>:<ACCOUNT_ID>:derivion-lms-email",
+        "arn:aws:sqs:<REGION>:<ACCOUNT_ID>:derivion-lms-dlq"
+      ]
+    }
+  ]
+}

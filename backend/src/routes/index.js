@@ -28,6 +28,9 @@ const { createOrder, verifyPayment, webhook, getPaymentHistory, adminGetPayments
 const { getSettings, updateSettings, getPublicSettings } = require('../services/settings');
 const { ACCESS_STATUSES } = require('../services/progress');
 const cache = require('../config/cache');
+const { listEmails, retryEmail, listOutbox, retryOutbox } = require('../controllers/emailAdminController');
+const integration = require('../controllers/integrationController');
+const { downloadInvoice } = require('../controllers/invoiceController');
 const { cacheResponse } = require('../middleware/cacheResponse');
 const {
   listSchools, getSchool, createSchool, updateSchool, deleteSchool,
@@ -602,10 +605,22 @@ router.post('/admin/mentor-sessions', ...adminAuth, createSession);
 router.put('/admin/mentor-sessions/:id', ...adminAuth, updateSession);
 router.delete('/admin/mentor-sessions/:id', ...adminAuth, deleteSession);
 
+// Email delivery log and Operations sync events (admin)
+router.get('/admin/emails', ...adminAuth, listEmails);
+router.post('/admin/emails/:id/retry', ...adminAuth, retryEmail);
+router.get('/admin/outbox', ...adminAuth, listOutbox);
+router.post('/admin/outbox/:id/retry', ...adminAuth, retryOutbox);
+
+// Service-to-service events from Operations (HMAC-signed, not user-authenticated)
+router.post('/integrations/operations/events', integration.authenticate, integration.receiveEvent);
+router.get('/integrations/operations/ping', integration.authenticate, integration.ping);
+router.post('/integrations/operations/emails/:id/retry', integration.authenticate, integration.retryEmail);
+
 // Payment routes
 router.post('/payments/create-order', ...studentAuth, createOrder);
 router.post('/payments/verify', ...studentAuth, verifyPayment);
 router.post('/payments/webhook', webhook); // No auth - Razorpay webhook
 router.get('/payments/history', ...studentAuth, getPaymentHistory);
+router.get('/payments/:id/invoice', ...studentAuth, downloadInvoice);
 
 module.exports = router;

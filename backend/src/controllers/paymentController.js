@@ -6,6 +6,8 @@ const { getCheckoutConfigurationId } = require('../utils/razorpayConfig');
 const { getSettings } = require('../services/settings');
 const { notifyUser } = require('../services/notify');
 const { isPlaceholderEmail } = require('../utils/credentials');
+const lifecycle = require('../services/lifecycle');
+const { isEnabled: integrationEnabled } = require('../config/integration');
 
 const getRazorpayInstance = () => {
   const key_id = process.env.RAZORPAY_KEY_ID;
@@ -165,40 +167,56 @@ const safeEqualHex = (x, y) => {
 };
 
 // Move a payment to SUCCESS exactly once and grant (or restore) the enrollment.
+// Everything that must stay consistent happens in ONE transaction: the payment status, the enrollment, the invoice,
+// the onboarding token, the Operations sync event and the confirmation email. If any step fails nothing is kept and
+// Razorpay's webhook retry simply runs it again; if two requests race, only the one that flips the status continues.
 // Returns true if this call performed the transition.
 const completePayment = async (payment, { razorpayPaymentId, razorpaySignature, gatewayResponse }) => {
-  const { count } = await prisma.payment.updateMany({
-    where: { id: payment.id, status: { in: ['PENDING', 'FAILED'] } },
-    data: {
-      status: 'SUCCESS',
-      ...(razorpayPaymentId && { razorpayPaymentId }),
-      ...(razorpaySignature && { razorpaySignature }),
-      ...(gatewayResponse && { gatewayResponse }),
-    },
-  });
-  if (count === 0 || !payment.courseId) return false;
+  const outcome = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.payment.updateMany({
+      where: { id: payment.id, status: { in: ['PENDING', 'FAILED'] } },
+      data: {
+        status: 'SUCCESS',
+        ...(razorpayPaymentId && { razorpayPaymentId }),
+        ...(razorpaySignature && { razorpaySignature }),
+        ...(gatewayResponse && { gatewayResponse }),
+      },
+    });
+    if (count === 0 || !payment.courseId) return null;
 
-  const existing = await prisma.enrollment.findUnique({
-    where: { userId_courseId: { userId: payment.userId, courseId: payment.courseId } },
-  });
-  if (!existing) {
-    await prisma.enrollment.create({ data: { userId: payment.userId, courseId: payment.courseId } })
-      .catch((e) => { if (e.code !== 'P2002') throw e; });
-    await prisma.course.update({ where: { id: payment.courseId }, data: { totalStudents: { increment: 1 } } });
-  } else if (existing.status === 'REFUNDED') {
-    await prisma.enrollment.update({ where: { id: existing.id }, data: { status: 'ACTIVE' } });
-  }
+    let enrollment = await tx.enrollment.findUnique({
+      where: { userId_courseId: { userId: payment.userId, courseId: payment.courseId } },
+    });
+    const previous = enrollment ? { ...enrollment } : null;   // the enrollment as it was before this payment
+    if (!enrollment) {
+      enrollment = await tx.enrollment.create({ data: { userId: payment.userId, courseId: payment.courseId } });
+      await tx.course.update({ where: { id: payment.courseId }, data: { totalStudents: { increment: 1 } } });
+    } else if (enrollment.status === 'REFUNDED') {
+      enrollment = await tx.enrollment.update({ where: { id: enrollment.id }, data: { status: 'ACTIVE' } });
+    }
 
-  const [user, course] = await Promise.all([
-    prisma.user.findUnique({ where: { id: payment.userId } }),
-    prisma.course.findUnique({ where: { id: payment.courseId } }),
-  ]);
+    const [user, course] = await Promise.all([
+      tx.user.findUnique({ where: { id: payment.userId } }),
+      tx.course.findUnique({ where: { id: payment.courseId } }),
+    ]);
+    const fresh = { ...payment, razorpayPaymentId: razorpayPaymentId || payment.razorpayPaymentId };
+    const lifecycleResult = user && course
+      ? await lifecycle.onPaymentSucceeded(tx, { payment: fresh, user, course, enrollment, previous })
+      : null;
+    return { user, course, lifecycleResult };
+  });
+  if (!outcome) return false;
+
+  const { user, course, lifecycleResult } = outcome;
   if (user && course) {
-    try {
-      const { subject, html } = emailTemplates.enrollmentConfirmation(user.firstName, course.title);
-      if (!isPlaceholderEmail(user.email)) sendEmail({ to: user.email, subject, html });
-    } catch (e) {
-      console.error('Failed to send enrollment email:', e);
+    // With the Operations integration active, the purchase/onboarding email is queued above and replaces this one
+    if (!lifecycleResult && !(integrationEnabled() && lifecycle.eligible(user))) {
+      try {
+        const { subject, html } = emailTemplates.enrollmentConfirmation(user.firstName, course.title);
+        if (!isPlaceholderEmail(user.email)) sendEmail({ to: user.email, subject, html });
+      } catch (e) {
+        console.error('Failed to send enrollment email:', e);
+      }
     }
     await prisma.notification.create({
       data: {
@@ -216,22 +234,33 @@ const completePayment = async (payment, { razorpayPaymentId, razorpaySignature, 
 // Mark a payment refunded and revoke the course access it bought
 const applyRefund = async (payment, refundId) => {
   if (payment.status === 'REFUNDED') return false;
-  await prisma.payment.update({
-    where: { id: payment.id },
-    data: { status: 'REFUNDED', refundId: refundId || null, refundedAt: new Date() },
-  });
-  if (payment.courseId) {
-    await prisma.enrollment.updateMany({
-      where: { userId: payment.userId, courseId: payment.courseId },
-      data: { status: 'REFUNDED' },
+  let refundMailQueued = false;
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.payment.updateMany({
+      where: { id: payment.id, status: { not: 'REFUNDED' } },
+      data: { status: 'REFUNDED', refundId: refundId || null, refundedAt: new Date() },
     });
-  }
+    if (count === 0) return;   // another request refunded it first
+    if (payment.courseId) {
+      await tx.enrollment.updateMany({
+        where: { userId: payment.userId, courseId: payment.courseId },
+        data: { status: 'REFUNDED' },
+      });
+      const [enrollment, user, course] = await Promise.all([
+        tx.enrollment.findUnique({ where: { userId_courseId: { userId: payment.userId, courseId: payment.courseId } }, select: { id: true } }),
+        tx.user.findUnique({ where: { id: payment.userId } }),
+        tx.course.findUnique({ where: { id: payment.courseId } }),
+      ]);
+      refundMailQueued = lifecycle.eligible(user) && Boolean(enrollment) && integrationEnabled();
+      await lifecycle.onPaymentRefunded(tx, { payment: { ...payment, refundId: refundId || null }, user, course, enrollmentId: enrollment?.id });
+    }
+  });
   await notifyUser(payment.userId, {
     title: 'Refund processed',
     message: `Your payment of ₹${Number(payment.amount).toLocaleString('en-IN')} has been refunded.`,
     type: 'INFO',
     link: '/payments',
-  }, { email: true }).catch(() => {});
+  }, { email: !refundMailQueued }).catch(() => {});   // the queued refund email replaces the generic one
   return true;
 };
 
@@ -366,6 +395,22 @@ const webhook = async (req, res) => {
         } else if (payment) {
           console.error('Webhook amount mismatch:', { orderId, paidPaise, expectedPaise });
         }
+      }
+    } else if (event === 'payment.failed') {
+      const orderId = paymentEntity?.order_id;
+      const payment = orderId && await prisma.payment.findFirst({ where: { OR: [{ razorpayOrderId: orderId }, { cashfreeOrderId: orderId }] } });
+      if (payment) {
+        const reason = paymentEntity?.error_description || paymentEntity?.error_reason || null;
+        await prisma.$transaction(async (tx) => {
+          // Only an open payment becomes FAILED; a payment that already succeeded is never downgraded
+          const { count } = await tx.payment.updateMany({ where: { id: payment.id, status: 'PENDING' }, data: { status: 'FAILED' } });
+          if (count === 0) return;
+          const [user, course] = await Promise.all([
+            tx.user.findUnique({ where: { id: payment.userId } }),
+            payment.courseId ? tx.course.findUnique({ where: { id: payment.courseId } }) : null,
+          ]);
+          await lifecycle.onPaymentFailed(tx, { payment, user, course, reason });
+        });
       }
     } else if (event === 'refund.processed' || event === 'payment.refunded') {
       const refundEntity = payload?.refund?.entity;

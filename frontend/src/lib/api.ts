@@ -460,6 +460,14 @@ export const auditAPI = {
   export: (params?: object) => api.get("/admin/audit-logs/export", { params, responseType: "blob" }),
 };
 
+// ==================== EMAIL DELIVERY & OPERATIONS SYNC ====================
+export const emailsAPI = {
+  listEmails: (params?: object) => api.get("/admin/emails", { params }),
+  retryEmail: (id: string) => api.post(`/admin/emails/${id}/retry`),
+  listOutbox: (params?: object) => api.get("/admin/outbox", { params }),
+  retryOutbox: (id: string) => api.post(`/admin/outbox/${id}/retry`),
+};
+
 // ==================== ACTIVITY & SIDEBAR UPDATES ====================
 export interface NavIndicators {
   items: Record<string, { count?: number; latestAt?: string | null }>;

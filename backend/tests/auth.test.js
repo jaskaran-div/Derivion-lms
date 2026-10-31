@@ -23,6 +23,8 @@ const reset = async () => {
 
 const pick = (obj, select) => (select ? Object.fromEntries(Object.keys(select).filter((k) => select[k] === true).map((k) => [k, obj[k]])) : obj);
 const prisma = {
+  // The code under test now wraps related writes in a transaction; the in-memory fake just runs the callback
+  $transaction: async (fn) => fn(prisma),
   user: {
     findUnique: async ({ where, select }) => { const u = db.users.find((x) => x.id === where.id || x.email === where.email); return u ? pick(u, select) : null; },
     findFirst: async ({ where }) => db.users.find((u) => {
