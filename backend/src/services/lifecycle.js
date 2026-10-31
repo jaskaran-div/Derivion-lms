@@ -9,7 +9,7 @@
  */
 const crypto = require('crypto');
 const prisma = require('../config/database');
-const { isEnabled, config } = require('../config/integration');
+const { isEnabled, sweepEnabled } = require('../config/integration');
 const { isPlaceholderEmail } = require('../utils/credentials');
 const outbox = require('./outbox');
 const emailService = require('./emailService');
@@ -45,15 +45,18 @@ const learnerPayload = (user) => ({
 
 // ---- learner synchronization -------------------------------------------------------------------------------------
 /** The learner is verified: announce them to Operations. `db` may be a transaction client. */
-const onLearnerVerified = async (db, user) => {
+const onLearnerVerified = async (db, user, { catchUp = 'recent' } = {}) => {
   if (!isEnabled() || !eligible(user)) return false;
-  return outbox.enqueue(db, {
+  const queued = await outbox.enqueue(db, {
     eventId: `learner.verified:${user.id}`,
     type: 'learner.verified',
     aggregateType: 'user',
     aggregateId: user.id,
     payload: learnerPayload(user),
   });
+  // Enrollments created while the learner was not yet eligible (e.g. an admin enrolled an unverified account)
+  if (queued && catchUp) await catchUpEnrollments(db, user, catchUp);
+  return queued;
 };
 
 /**
@@ -84,7 +87,7 @@ const onLearnerUpdated = async (db, user) => {
  * @returns {Promise<number>} how many learners were queued
  */
 const sweepUnsyncedLearners = async ({ limit = 100 } = {}) => {
-  if (!isEnabled()) return 0;
+  if (!isEnabled() || !sweepEnabled()) return 0;   // historical backfill is opt-in (LEARNER_SYNC_SWEEP)
   const rows = await prisma.$queryRaw`
     SELECT u.id FROM users u
     WHERE u.role = 'STUDENT'::"Role" AND u."isActive" = true AND u."isEmailVerified" = true
@@ -95,7 +98,8 @@ const sweepUnsyncedLearners = async ({ limit = 100 } = {}) => {
   if (!rows.length) return 0;
   const users = await prisma.user.findMany({ where: { id: { in: rows.map((r) => r.id) } } });
   let queued = 0;
-  for (const user of users) if (await onLearnerVerified(prisma, user)) queued += 1;
+  // Backfill only announces the learner and their existing enrollments; it never sends onboarding emails
+  for (const user of users) if (await onLearnerVerified(prisma, user, { catchUp: 'sync-only' })) queued += 1;
   return queued;
 };
 
@@ -252,6 +256,148 @@ const onOnboardingCompleted = async (tx, { user, course, enrollment }) => {
   });
 };
 
+
+// ---- free and manually created enrollments (no payment, no invoice) --------------------------------------------------
+// Paid enrollments go through onPaymentSucceeded. Everything else - a free course, or an enrollment made by an admin, a
+// teacher or a bulk import - goes through here. The distinction is explicit in the event: payment_status NOT_APPLICABLE,
+// no amount, no invoice number.
+const SOURCE_LABEL = { free: 'Free course', admin: 'Added by Derivion', teacher: 'Added by your school', bulk: 'Added by your school' };
+const CATCH_UP_DAYS = 30;
+
+/**
+ * Announce one non-paid enrollment to Operations (once: the event id is derived from the enrollment).
+ * mode 'full'      -> also issue a personal onboarding link and queue the onboarding email
+ * mode 'sync-only' -> history only: Operations records the enrollment, marked "onboarding not required", and nobody is emailed
+ */
+const onEnrollmentCreated = async (db, { user, course, enrollment, source, mode = 'full' }) => {
+  if (!isEnabled() || !eligible(user) || !course || enrollment.status === 'REFUNDED') return null;
+  const handled = await db.outboxEvent.count({
+    where: { aggregateType: 'enrollment', aggregateId: enrollment.id, type: { in: ['enrollment.created', 'payment.successful'] } },
+  });
+  if (handled) return null;
+
+  let tokenRow = null;
+  const full = mode === 'full';
+  if (full) {
+    ({ row: tokenRow } = await onboardingTokens.issue(db, enrollment.id));
+    await db.enrollment.update({ where: { id: enrollment.id }, data: { onboardingStatus: 'ONBOARDING_PENDING', onboardingCompletedAt: null } });
+  }
+
+  await outbox.enqueue(db, {
+    eventId: `enrollment.created:${enrollment.id}`,
+    type: 'enrollment.created',
+    aggregateType: 'enrollment',
+    aggregateId: enrollment.id,
+    payload: {
+      lms_enrollment_id: enrollment.id,
+      lms_user_id: user.id,
+      lms_course_id: course.id,
+      course_name: course.title,
+      payment_status: 'NOT_APPLICABLE',
+      enrollment_status: enrollment.status,
+      enrollment_source: source,
+      onboarding_required: full,
+      enrolled_at: new Date(enrollment.enrolledAt || Date.now()).toISOString(),
+      ...(tokenRow && { onboarding_token_hash: tokenRow.tokenHash, onboarding_token_expires_at: tokenRow.expiresAt.toISOString() }),
+      learner: learnerPayload(user),
+    },
+  });
+  await auditTx(db, {
+    userId: user.id, action: 'ENROLLMENT_CREATED', targetId: enrollment.id, targetType: 'enrollment',
+    details: { source, courseId: course.id, mode, payment: 'none' },
+  });
+
+  if (full) {
+    const earlier = await db.enrollment.count({ where: { userId: user.id, id: { not: enrollment.id }, onboardingStatus: 'ONBOARDING_COMPLETED' } });
+    await emailService.queue(db, {
+      dedupeKey: `enrollment-onboarding:${enrollment.id}`, template: 'enrollment-onboarding', to: user.email, userId: user.id, enrollmentId: enrollment.id,
+      data: {
+        firstName: user.firstName, courseTitle: course.title, courseDetails: courseDetails(course), enrollmentId: enrollment.id,
+        sourceLabel: SOURCE_LABEL[source] || 'Added by Derivion', free: source === 'free', returning: earlier > 0, tokenRowId: tokenRow.id,
+      },
+    });
+  }
+  return { tokenRow };
+};
+
+/**
+ * Call right after a non-paid enrollment row was created (free course, admin, teacher, bulk). Never throws: a problem here
+ * must not break enrolling someone; the recent-enrollment sweep below picks up anything missed.
+ */
+const afterEnrollmentCreated = async ({ userId, courseId, source }) => {
+  if (!isEnabled()) return null;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const [user, course, enrollment] = await Promise.all([
+        tx.user.findUnique({ where: { id: userId } }),
+        tx.course.findUnique({ where: { id: courseId } }),
+        tx.enrollment.findUnique({ where: { userId_courseId: { userId, courseId } } }),
+      ]);
+      if (!user || !enrollment) return null;
+      return onEnrollmentCreated(tx, { user, course, enrollment, source });
+    });
+  } catch (err) {
+    console.error('[lifecycle] enrollment sync not queued:', err.message);
+    return null;
+  }
+};
+
+/** The learner just became eligible: sync what they were already enrolled in (recent ones also get the onboarding email). */
+const catchUpEnrollments = async (db, user, mode) => {
+  const enrollments = await db.enrollment.findMany({ where: { userId: user.id, status: { not: 'REFUNDED' } }, include: { course: true } });
+  for (const e of enrollments) {
+    const recent = Date.now() - new Date(e.enrolledAt).getTime() < CATCH_UP_DAYS * 86400000;
+    await onEnrollmentCreated(db, { user, course: e.course, enrollment: e, source: 'admin', mode: mode === 'recent' && recent ? 'full' : 'sync-only' });
+  }
+};
+
+/**
+ * Safety net for non-paid enrollments of eligible learners that have no event yet.
+ *  - enrollments from the last 7 days AND after the integration was first switched on: always checked (covers a failed hook); full flow
+ *  - older ones: only when the historical sweep is enabled (LEARNER_SYNC_SWEEP); sync-only
+ */
+/**
+ * When the integration was first active. Enrollments made before that moment are history: they are only ever synchronized
+ * by the opt-in backfill, never emailed, so switching the integration on cannot surprise anyone who enrolled earlier.
+ */
+const integrationStart = async () => {
+  const key = 'integrationStartedAt';
+  let row = await prisma.siteSettings.findUnique({ where: { key } });
+  if (!row) {
+    try { row = await prisma.siteSettings.create({ data: { key, value: new Date().toISOString() } }); }
+    catch { row = await prisma.siteSettings.findUnique({ where: { key } }); }   // another worker won the race
+  }
+  return new Date(row.value);
+};
+
+const sweepUnsyncedEnrollments = async ({ limit = 100 } = {}) => {
+  if (!isEnabled()) return 0;
+  const recentFrom = new Date(Math.max(Date.now() - 7 * 86400000, (await integrationStart()).getTime()));
+  const historical = sweepEnabled();
+  const rows = await prisma.$queryRaw`
+    SELECT e.id FROM enrollments e
+    JOIN users u ON u.id = e."userId"
+    WHERE e.status <> 'REFUNDED'::"EnrollmentStatus" AND u.role = 'STUDENT'::"Role" AND u."isActive" = true AND u."isEmailVerified" = true
+      AND u.email NOT LIKE '%@students.derivion.local'
+      AND NOT EXISTS (SELECT 1 FROM outbox_events o WHERE o."aggregateType" = 'enrollment' AND o."aggregateId" = e.id
+                      AND o.type IN ('enrollment.created', 'payment.successful'))
+      AND NOT EXISTS (SELECT 1 FROM payments p WHERE p."userId" = e."userId" AND p."courseId" = e."courseId" AND p.status = 'SUCCESS'::"PaymentStatus")
+      AND (${historical} OR e."enrolledAt" >= ${recentFrom})
+    ORDER BY e."enrolledAt"
+    LIMIT ${limit}`;
+  let queued = 0;
+  for (const { id } of rows) {
+    await prisma.$transaction(async (tx) => {
+      const e = await tx.enrollment.findUnique({ where: { id }, include: { user: true, course: true } });
+      if (!e) return;
+      const isRecent = e.enrolledAt >= recentFrom;
+      const r = await onEnrollmentCreated(tx, { user: e.user, course: e.course, enrollment: e, source: 'admin', mode: isRecent ? 'full' : 'sync-only' });
+      if (r) queued += 1;
+    });
+  }
+  return queued;
+};
+
 // ---- onboarding reminders (off unless ONBOARDING_REMINDER_DAYS is set, e.g. "3,7") ---------------------------------
 const reminderDays = () => String(process.env.ONBOARDING_REMINDER_DAYS || '')
   .split(',').map((d) => parseInt(d.trim(), 10)).filter((d) => d > 0).sort((a, b) => a - b);
@@ -292,6 +438,7 @@ const queueOnboardingReminders = async ({ limit = 100 } = {}) => {
 module.exports = {
   isRealEmail, eligible, learnerPayload,
   onLearnerVerified, onLearnerUpdated, sweepUnsyncedLearners,
+  onEnrollmentCreated, afterEnrollmentCreated, sweepUnsyncedEnrollments,
   onPaymentSucceeded, onPaymentFailed, onPaymentRefunded, onOnboardingCompleted,
   queueOnboardingReminders,
 };

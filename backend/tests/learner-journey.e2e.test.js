@@ -41,7 +41,7 @@ describe('learner journey LMS <-> Operations', { skip: skipReason }, () => {
   let prisma, auth, payments, emailService, outboxWorker, integration, lifecycle;
   let opsUrl, opsDbUrl, opsDbName, lmsServer, lmsPort, opsPort;
   const children = {};
-  const mail = { sent: [], failuresLeft: 0, calls: 0 };
+  const mail = { sent: [], legacy: [], failuresLeft: 0, calls: 0 };
   let otpSeen;
   let lastOtp;
 
@@ -104,10 +104,18 @@ describe('learner journey LMS <-> Operations', { skip: skipReason }, () => {
     // into this one (or look like learners nobody has announced yet)
     await prisma.$executeRaw`TRUNCATE TABLE outbox_events, email_logs, inbound_events, integration_nonces, users, categories CASCADE`;
 
+    await prisma.siteSettings.upsert({
+      where: { key: 'integrationStartedAt' },
+      create: { key: 'integrationStartedAt', value: new Date(Date.now() - 86400000).toISOString() },
+      update: { value: new Date(Date.now() - 86400000).toISOString() },
+    });
+    delete process.env.LEARNER_SYNC_SWEEP;   // the default: historical backfill is OFF
+
     // Only email is faked: capture the OTP the registration flow would send
     installMockModule(require.resolve('../src/config/email'), {
       emailConfigured: () => true,
-      sendEmail: async ({ html }) => { otpSeen = (String(html).match(/\d{6}/) || [])[0]; return true; },
+      // OTP emails are read for their code; every other legacy (non-queued) email is recorded so tests can prove none was sent
+      sendEmail: async ({ to, html }) => { if (/code is \d{6}/.test(String(html))) otpSeen = String(html).match(/\d{6}/)[0]; else mail.legacy.push({ to, html }); return true; },
       emailTemplates: {
         emailOtp: (name, otp) => ({ subject: 'code', html: `Your code is ${otp}` }),
         welcome: () => ({ subject: 'welcome', html: 'welcome' }),
@@ -244,6 +252,10 @@ describe('learner journey LMS <-> Operations', { skip: skipReason }, () => {
   const newPendingPayment = (user, course) => prisma.payment.create({
     data: { userId: user.id, courseId: course.id, amount: 4999, status: 'PENDING', razorpayOrderId: `order_${uid()}${uid()}` },
   });
+  const makeFreeCourse2 = async () => {
+    category = category || await prisma.category.create({ data: { name: `Cat ${uid()}`, slug: `cat-${uid()}` } });
+    return prisma.course.create({ data: { title: `Free ${uid()}`, slug: `f2-${uid()}`, description: 'd', price: 0, isFree: true, status: 'PUBLISHED', categoryId: category.id } });
+  };
   const flush = async () => {
     await runOutbox();
     for (let i = 0; i < 10; i += 1) {
@@ -614,6 +626,9 @@ describe('learner journey LMS <-> Operations', { skip: skipReason }, () => {
 
   // ====================================================================== account creation paths
   describe('learner synchronization across every creation path', () => {
+    before(() => { process.env.LEARNER_SYNC_SWEEP = 'on'; });
+    after(() => { delete process.env.LEARNER_SYNC_SWEEP; });
+
     const opsLearner = async (id) => (await opsQuery('SELECT * FROM learners WHERE lms_user_id = $1', [id]))[0];
     const queued = (id) => prisma.outboxEvent.count({ where: { eventId: `learner.verified:${id}` } });
 
@@ -937,6 +952,232 @@ describe('learner journey LMS <-> Operations', { skip: skipReason }, () => {
       assert.equal(Buffer.from(mine.body).subarray(0, 5).toString(), '%PDF-');
       assert.equal((await get({ id: 'someone-else', role: 'STUDENT' })).statusCode, 404);
       assert.equal((await get({ id: 'an-admin', role: 'ADMIN' })).statusCode, 200);
+    });
+  });
+
+  // ====================================================================== free and manual enrollments, backfill switch
+  describe('free and manually created enrollments (no payment, no invoice)', () => {
+    const opsEnrollment = async (id) => (await opsQuery('SELECT * FROM enrollments WHERE lms_enrollment_id = $1', [id]))[0];
+    const makeFreeCourse = async (title) => {
+      category = category || await prisma.category.create({ data: { name: `Cat ${uid()}`, slug: `cat-${uid()}` } });
+      return prisma.course.create({ data: { title, slug: `free-${uid()}`, description: `${title} description`, price: 0, isFree: true, status: 'PUBLISHED', categoryId: category.id, level: 'Beginner', totalLessons: 5 } });
+    };
+    const enrollmentOf = (user, course) => prisma.enrollment.findUnique({ where: { userId_courseId: { userId: user.id, courseId: course.id } } });
+
+    it('free course: syncs to Operations with payment NOT_APPLICABLE, issues a link and emails the learner; there is no payment and no invoice', async () => {
+      const user = await registerAndVerify();
+      const course = await makeFreeCourse('Free Intro to Markets');
+      const res = response();
+      await payments.createOrder({ user: { id: user.id }, body: { courseId: course.id } }, res);
+      assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+
+      const enr = await enrollmentOf(user, course);
+      assert.equal(enr.onboardingStatus, 'ONBOARDING_PENDING');
+      assert.equal(await prisma.payment.count({ where: { userId: user.id, courseId: course.id } }), 0, 'no payment row');
+      assert.equal(await prisma.invoice.count({ where: { userId: user.id } }), 0, 'no invoice');
+
+      const ev = await prisma.outboxEvent.findUnique({ where: { eventId: `enrollment.created:${enr.id}` } });
+      assert.equal(ev.payload.payment_status, 'NOT_APPLICABLE');
+      assert.equal(ev.payload.enrollment_source, 'free');
+      assert.equal(ev.payload.onboarding_required, true);
+      assert.ok(!('amount' in ev.payload) && !('invoice_number' in ev.payload));
+      assert.ok(ev.payload.onboarding_token_hash);
+
+      await flush();
+      const msgs = mailsTo(user.email, 'You are enrolled');
+      assert.equal(msgs.length, 1);
+      for (const t of ['Free Intro to Markets', enr.id, 'Free course', 'No payment required', 'Beginner']) assert.ok(msgs[0].html.includes(t), t);
+      assert.equal(msgs[0].attachments, undefined, 'nothing to attach: no invoice');
+      assert.ok(!msgs[0].html.includes('Amount paid'));
+
+      const ops = await opsEnrollment(enr.id);
+      assert.equal(ops.payment_status, 'NOT_APPLICABLE');
+      assert.equal(ops.amount_paid, null);
+      assert.equal(ops.invoice_number, null);
+      assert.equal(ops.onboarding_status, 'ONBOARDING_PENDING');
+      const view = await opsGet(tokenFromLastMail(user.email).token);
+      assert.equal(view.enrollment.programme, 'Free Intro to Markets');
+
+      // enrolling again changes nothing
+      const again = response();
+      await payments.createOrder({ user: { id: user.id }, body: { courseId: course.id } }, again);
+      assert.equal(again.statusCode, 409);
+      assert.equal(await prisma.outboxEvent.count({ where: { aggregateId: enr.id } }), 1);
+    });
+
+    it('paid and free enrollments of the same learner are clearly different in Operations', async () => {
+      const user = await registerAndVerify();
+      const paid = await makeCourse('Paid Course For Comparison');
+      const free = await makeFreeCourse('Free Course For Comparison');
+      await buy(user, paid);
+      const res = response();
+      await payments.createOrder({ user: { id: user.id }, body: { courseId: free.id } }, res);
+      await flush();
+      const a = await opsEnrollment((await enrollmentOf(user, paid)).id);
+      const b = await opsEnrollment((await enrollmentOf(user, free)).id);
+      assert.equal(a.payment_status, 'PAID');
+      assert.ok(a.invoice_number && Number(a.amount_paid) === 4999);
+      assert.equal(b.payment_status, 'NOT_APPLICABLE');
+      assert.equal(b.invoice_number, null);
+      assert.equal((await opsQuery('SELECT COUNT(*)::int AS n FROM learners WHERE lms_user_id = $1', [user.id]))[0].n, 1);
+      assert.equal(await prisma.invoice.count({ where: { userId: user.id } }), 1, 'only the paid enrollment has an invoice');
+    });
+
+    it('admin-created enrollment of a verified learner: synced, onboarding link + email, no invoice; the old generic email is not sent as well', async () => {
+      const { enrollUser } = require('../src/controllers/userController');
+      const user = await registerAndVerify();
+      const course = await makeCourse('Enrolled By Admin');
+      const res = response();
+      await enrollUser({ params: { id: user.id }, body: { courseId: course.id }, user: { id: 'admin' } }, res);
+      assert.equal(res.statusCode, 201, JSON.stringify(res.body));
+      await new Promise((r) => setTimeout(r, 200));   // notifyEnrollment runs in the background
+      const enr = await enrollmentOf(user, course);
+      const ev = await prisma.outboxEvent.findUnique({ where: { eventId: `enrollment.created:${enr.id}` } });
+      assert.equal(ev.payload.enrollment_source, 'admin');
+      assert.equal(ev.payload.payment_status, 'NOT_APPLICABLE');
+      assert.equal(await prisma.invoice.count({ where: { userId: user.id } }), 0);
+      await flush();
+      const msgs = mailsTo(user.email, 'You have been enrolled');
+      assert.equal(msgs.length, 1);
+      assert.ok(msgs[0].html.includes('Added by Derivion'));
+      assert.match(msgs[0].html, /onboarding\/[a-f0-9]{64}/);
+      assert.equal((await opsEnrollment(enr.id)).payment_status, 'NOT_APPLICABLE');
+      // the old generic "You have a new course" email is replaced by the onboarding email; the in-app notification is kept
+      assert.equal(mail.legacy.filter((m) => m.to === user.email && m.html === 'n').length, 0, 'no second, generic enrollment email');
+      assert.equal((await prisma.notification.count({ where: { userId: user.id, title: 'You have a new course' } })), 1);
+    });
+
+    it('admin enrolls an UNVERIFIED learner: nothing is sent; once they verify, the enrollment is synced with its onboarding email', async () => {
+      const { createUser, enrollUser } = require('../src/controllers/userController');
+      const email = `unverified-${uid()}@journey.test`;
+      const made = response();
+      await createUser({ body: { email, password: 'Temp-Pass-123', firstName: 'Later', lastName: 'Verified', role: 'STUDENT' }, user: { id: 'admin' } }, made);
+      const user = await prisma.user.findUnique({ where: { email } });
+      const course = await makeCourse('Enrolled Before Verification');
+      const res = response();
+      await enrollUser({ params: { id: user.id }, body: { courseId: course.id }, user: { id: 'admin' } }, res);
+      assert.equal(res.statusCode, 201);
+      const enr = await enrollmentOf(user, course);
+      assert.equal(await prisma.outboxEvent.count({ where: { aggregateId: enr.id } }), 0, 'not eligible yet: no event');
+      assert.equal(enr.onboardingStatus, 'NOT_APPLICABLE');
+      await flush();
+      assert.equal(mailsTo(email).length, 0);
+
+      const login = response();
+      await auth.login({ body: { email, password: 'Temp-Pass-123' }, ip: '::1', headers: {} }, login);
+      const ok = response();
+      await auth.verifyEmailOtp({ body: { otpToken: login.body.data.otpToken, otp: otpSeen }, ip: '::1', headers: {} }, ok);
+      assert.equal(ok.statusCode, 200);
+      assert.equal(await prisma.outboxEvent.count({ where: { eventId: `enrollment.created:${enr.id}` } }), 1, 'caught up at verification');
+      await flush();
+      assert.equal(mailsTo(email, 'You have been enrolled').length, 1);
+      assert.equal((await opsEnrollment(enr.id)).onboarding_status, 'ONBOARDING_PENDING');
+    });
+
+    it('teacher-created and bulk-imported students (placeholder emails) are enrolled but nothing is synced or emailed', async () => {
+      const teacher = await prisma.user.create({ data: { email: `teacher2-${uid()}@journey.test`, password: 'x', firstName: 'Tea', lastName: 'Cher', role: 'TEACHER', isEmailVerified: true } });
+      const course = await makeFreeCourse('School Course');
+      const { createStudent, enrollStudent } = require('../src/controllers/teacherController');
+      const { importStudents } = require('../src/controllers/bulkImportController');
+      const before = await prisma.outboxEvent.count({ where: { type: 'enrollment.created' } });
+
+      const made = response();
+      await createStudent({ user: { id: teacher.id, role: 'TEACHER' }, body: { firstName: 'Sch', lastName: `Pupil${uid()}`, guardianEmail: `g-${uid()}@journey.test`, courseIds: [course.id] } }, made);
+      assert.equal(made.statusCode, 201, JSON.stringify(made.body));
+      assert.deepEqual(made.body.data.enrolledCourseIds, [course.id]);
+
+      const pupil2 = await prisma.user.create({ data: { email: `p2-${uid()}@students.derivion.local`, password: 'x', firstName: 'Sch', lastName: 'Two', role: 'STUDENT', createdById: teacher.id } });
+      const enrolled = response();
+      await enrollStudent({ user: { id: teacher.id, role: 'TEACHER' }, params: { id: pupil2.id }, body: { courseId: course.id } }, enrolled).catch(() => {});
+
+      const csv = `firstName,lastName,guardianEmail,guardianPhone\nBulk,Kid${uid()},,9876500003`;
+      const imp = response();
+      await importStudents({ user: { id: teacher.id, role: 'TEACHER' }, body: { csvData: csv, courseIds: [course.id] }, ip: '::1', headers: {} }, imp);
+      assert.equal(imp.statusCode, 200, JSON.stringify(imp.body));
+
+      assert.ok(await prisma.enrollment.count({ where: { courseId: course.id } }) >= 2, 'the students are enrolled');
+      assert.equal(await prisma.outboxEvent.count({ where: { type: 'enrollment.created' } }), before, 'no enrollment events for placeholder emails');
+      await flush();
+      assert.equal(mail.sent.filter((m) => /School Course/.test(m.subject)).length, 0);
+    });
+  });
+
+  describe('initial backfill switch', () => {
+    const makeOldLearner = async () => {
+      const email = `old-${uid()}@journey.test`;
+      const user = await prisma.user.create({ data: { email, password: 'x', firstName: 'Old', lastName: 'Timer', role: 'STUDENT', isEmailVerified: true } });
+      category = category || await prisma.category.create({ data: { name: `Cat ${uid()}`, slug: `cat-${uid()}` } });
+      const course = await prisma.course.create({ data: { title: `Historic ${uid()}`, slug: `h-${uid()}`, description: 'd', price: 0, isFree: true, status: 'PUBLISHED', categoryId: category.id } });
+      const enr = await prisma.enrollment.create({ data: { userId: user.id, courseId: course.id, enrolledAt: new Date(Date.now() - 40 * 86400000) } });
+      return { user, course, enr };
+    };
+
+    it('is OFF by default: existing verified learners and their old enrollments are NOT announced', async () => {
+      delete process.env.LEARNER_SYNC_SWEEP;
+      const { user, enr } = await makeOldLearner();
+      assert.equal(await lifecycle.sweepUnsyncedLearners(), 0);
+      assert.equal(await lifecycle.sweepUnsyncedEnrollments(), 0);
+      assert.equal(await prisma.outboxEvent.count({ where: { OR: [{ eventId: `learner.verified:${user.id}` }, { aggregateId: enr.id }] } }), 0);
+      await flush();
+      assert.equal(mailsTo(user.email).length, 0);
+      state.oldLearner = { user, enr };
+    });
+
+    it('when switched ON it announces them and their history WITHOUT onboarding links or emails; Operations records the history as "onboarding not required"', async () => {
+      process.env.LEARNER_SYNC_SWEEP = 'on';
+      try {
+        const { user, enr } = state.oldLearner;
+        assert.ok(await lifecycle.sweepUnsyncedLearners() >= 1);
+        await flush();
+
+        assert.equal(await prisma.onboardingToken.count({ where: { enrollmentId: enr.id } }), 0, 'no link for historical enrollments');
+        assert.equal(mailsTo(user.email).length, 0, 'nobody is emailed by the backfill');
+        const ev = await prisma.outboxEvent.findUnique({ where: { eventId: `enrollment.created:${enr.id}` } });
+        assert.equal(ev.payload.onboarding_required, false);
+        assert.equal((await prisma.enrollment.findUnique({ where: { id: enr.id } })).onboardingStatus, 'NOT_APPLICABLE');
+
+        const learner = (await opsQuery('SELECT * FROM learners WHERE lms_user_id = $1', [user.id]))[0];
+        assert.equal(learner.onboarding_status, 'REGISTERED', 'the learner is not pushed into onboarding');
+        const ops = (await opsQuery('SELECT onboarding_status, payment_status FROM enrollments WHERE lms_enrollment_id = $1', [enr.id]))[0];
+        assert.equal(ops.onboarding_status, 'NOT_APPLICABLE');
+        assert.equal(ops.payment_status, 'NOT_APPLICABLE');
+
+        // running it again changes nothing
+        assert.equal(await lifecycle.sweepUnsyncedLearners(), await lifecycle.sweepUnsyncedLearners());
+        assert.equal(await prisma.outboxEvent.count({ where: { aggregateId: enr.id } }), 1);
+      } finally {
+        delete process.env.LEARNER_SYNC_SWEEP;
+      }
+    });
+
+    it('enrollments made BEFORE the integration was switched on are never emailed, even by the always-on recent sweep', async () => {
+      const { user, course } = await makeOldLearner();
+      await prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } });
+      // an enrollment from 2 days ago, but the integration only started "now"
+      const e = await prisma.enrollment.create({ data: { userId: user.id, courseId: (await makeFreeCourse2()).id, enrolledAt: new Date(Date.now() - 2 * 86400000) } });
+      const start = await prisma.siteSettings.findUnique({ where: { key: 'integrationStartedAt' } });
+      await prisma.siteSettings.update({ where: { key: 'integrationStartedAt' }, data: { value: new Date().toISOString() } });
+      try {
+        await lifecycle.sweepUnsyncedEnrollments();
+        assert.equal(await prisma.outboxEvent.count({ where: { aggregateId: e.id } }), 0);
+        assert.equal(mailsTo(user.email).length, 0);
+      } finally {
+        await prisma.siteSettings.update({ where: { key: 'integrationStartedAt' }, data: { value: start.value } });
+      }
+      void course;
+    });
+
+    it('a recent enrollment whose hook failed is repaired by the always-on sweep (full flow)', async () => {
+      const user = await registerAndVerify();
+      category = category || await prisma.category.create({ data: { name: `Cat ${uid()}`, slug: `cat-${uid()}` } });
+      const course = await prisma.course.create({ data: { title: 'Hook Failed Course', slug: `hf-${uid()}`, description: 'd', price: 0, isFree: true, status: 'PUBLISHED', categoryId: category.id } });
+      const enr = await prisma.enrollment.create({ data: { userId: user.id, courseId: course.id } });   // created without calling the hook
+      assert.equal(await prisma.outboxEvent.count({ where: { aggregateId: enr.id } }), 0);
+      assert.ok(await lifecycle.sweepUnsyncedEnrollments() >= 1);
+      await flush();
+      assert.equal(mailsTo(user.email, 'Hook Failed Course').length, 1);
+      assert.equal((await opsQuery('SELECT payment_status FROM enrollments WHERE lms_enrollment_id = $1', [enr.id]))[0].payment_status, 'NOT_APPLICABLE');
+      assert.equal(await lifecycle.sweepUnsyncedEnrollments(), 0, 'idempotent');
     });
   });
 });

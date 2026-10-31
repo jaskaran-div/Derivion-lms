@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../config/database');
 const { generateUsername, generatePassword, studentEmail } = require('../utils/credentials');
 const { teacherSchoolId, linkLearnerToSchool } = require('../services/learners');
+const lifecycle = require('../services/lifecycle');
 const { notifyEnrollment } = require('../services/notify');
 
 // Courses a teacher can use: those assigned to their school(s) or classes.
@@ -192,6 +193,7 @@ const createStudent = async (req, res) => {
           await prisma.enrollment.create({ data: { userId: student.id, courseId } });
           await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
           enrolled.push(courseId);
+          await lifecycle.afterEnrollmentCreated({ userId: student.id, courseId, source: 'teacher' });
           notifyEnrollment(student.id, courseId).catch(() => {});
         } catch {
           // skip duplicates / invalid ids
@@ -266,6 +268,7 @@ const enrollStudent = async (req, res) => {
     if (existing) return res.status(409).json({ success: false, message: 'Student already enrolled.' });
     const enrollment = await prisma.enrollment.create({ data: { userId: student.id, courseId } });
     await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
+    await lifecycle.afterEnrollmentCreated({ userId: student.id, courseId, source: 'teacher' });
     notifyEnrollment(student.id, courseId).catch(() => {});
     res.status(201).json({ success: true, message: 'Student enrolled.', data: enrollment });
   } catch (error) {

@@ -26,6 +26,24 @@ Learner opens link ─► Operations prefills, asks only what is missing ─► 
 | Repeat purchases | New course → separate enrollment, separate invoice, own link, general onboarding in Operations stays COMPLETED; only course-specific answers + the per-enrollment declaration are asked again. |
 | Duplicate payment | One enrollment; the second payment still gets its invoice and a confirmation email **without** a link; onboarding is not reset; nothing is sent to Operations; an audit entry is written. |
 
+## Paid vs free / manually created enrollments
+
+| | Paid purchase | Free course | Admin-enrolled | Teacher / bulk (school) |
+|---|---|---|---|---|
+| Payment row, invoice | ✅ | ❌ none | ❌ none | ❌ none |
+| Event to Operations | `payment.successful` (amount, reference, invoice no.) | `enrollment.created`, `payment_status: NOT_APPLICABLE`, `enrollment_source: free` | same, source `admin` | same, source `teacher` / `bulk` |
+| Onboarding link + email | ✅ purchase & onboarding email (+ invoice PDF) | ✅ "enrollment-onboarding" email: no amount, no invoice | ✅ same email, "Added by Derivion" | ✅ only if the student has a real, verified email (normally a placeholder, so **nothing is synced or sent**) |
+| Old generic "you have a new course" email | n/a (replaced) | n/a | **suppressed** for synchronized learners (in-app notification kept) | suppressed likewise |
+| Learner not yet eligible (unverified / placeholder) | – | – | nothing sent; when they later verify, the enrollment is synced and (if recent, < 30 days) the onboarding email is sent | same |
+
+Enrollments are announced exactly once (event id derived from the enrollment). A safety-net sweep repairs a missed hook for
+enrollments made **after the integration was first switched on**; older enrollments are history and are only touched by the
+backfill below.
+
+## Backfill switch (`LEARNER_SYNC_SWEEP`, default **off**)
+* **Off (first deployment):** existing learners and old enrollments are not announced. New verifications, new enrollments, purchases and refunds sync normally.
+* **On (a deliberate step after testing):** the worker announces existing eligible learners (100 per minute) and their existing enrollments **as history only**: no onboarding link, no email, and Operations marks those enrollments "onboarding not required".
+
 ## Checklist
 
 | Area | Implemented | Tested (how) |
@@ -37,6 +55,11 @@ Learner opens link ─► Operations prefills, asks only what is missing ─► 
 | Placeholder → real verified email | ✅ sweep | ✅ E2E (unverified real email is not synced; verified one is, once) |
 | Eligibility rules (invalid/reserved/unverified) | ✅ | ✅ unit-level assertions |
 | Name/phone change by an admin → `learner.updated` | ✅ (learners cannot edit their own profile in this LMS) | ✅ E2E (same content saved twice → one event) |
+| Free-course enrollment (no payment, no invoice) | ✅ | ✅ E2E: no payment row/invoice, payment `NOT_APPLICABLE` in Operations, link + email |
+| Admin-created enrollment; verified and unverified learner (catch-up at verification) | ✅ | ✅ E2E |
+| Teacher-created / bulk enrollment (placeholder email) | ✅ never synced while placeholder | ✅ E2E (real `createStudent`, `enrollStudent`, `importStudents`) |
+| Backfill switch off by default / on = history only, no emails | ✅ | ✅ E2E |
+| Paid vs free distinguishable in Operations | ✅ | ✅ E2E |
 | Verified payment → enrollment, invoice, token, event, email in one transaction | ✅ | ✅ E2E |
 | Failed payment (`payment.failed` webhook) | ✅ FAILED once, learner email, audit, never downgrades a success | ✅ E2E (incl. later successful retry) |
 | Successful payment, **duplicate webhooks** (sequential and 4 concurrent) | ✅ | ✅ E2E, 5 consecutive runs |
@@ -52,8 +75,8 @@ Learner opens link ─► Operations prefills, asks only what is missing ─► 
 | `onboarding.completed` → LMS (signed), status updated, confirmation email once | ✅ | ✅ E2E |
 | Retries, backoff, dead-letter, dedupe (outbox, email, inbound events) | ✅ | ✅ E2E: Operations down, email failure, replay of all events |
 | Email status values + admin retry | ✅ PENDING / SENDING / SENT / FAILED | ✅ E2E (incl. retry **from the Operations dashboard** through the LMS) |
-| LMS admin screen "Emails & Sync" | ✅ `/admin/emails` | ⚠ type-checked and linted; **not exercised in a browser** (needs a running LMS front end) |
-| Operations **Integrations** dashboard (overview, LMS connectivity, events, outbound events, email history, retry) | ✅ admin only | ✅ API: 6 tests, incl. signed ping/retry; ⚠ screen itself built and linted, **not exercised in a browser** |
+| LMS admin screen "Emails & Sync" | ✅ `/admin/emails` | ✅ **real browser** (Edge): list, filters, retry email, retry dead event, audit entry, teacher blocked (403), traffic stays local |
+| Operations **Integrations** dashboard (overview, LMS connectivity, events, outbound events, email history, retry) | ✅ admin only | ✅ API: 6 tests · ✅ **real browser**: staff cannot see or call it (403/401), connected status, event details/retry, outbound requeue, email retry with a signed request |
 | Templates | ✅ purchase-onboarding, purchase-confirmation, refund-confirmation, payment-failed, onboarding-completed, onboarding-reminder | ✅ rendered and sent in E2E |
 | Onboarding reminders | ✅ **off unless `ONBOARDING_REMINDER_DAYS` is set** (e.g. `3,7`) | ✅ E2E |
 | Audit logs | ✅ payment verified (with kind), duplicate payment, failed/refunded, onboarding completed, admin retries | ✅ asserted in E2E |
@@ -69,24 +92,25 @@ emails, and security notifications (there is no password-change email today).
 | Suite | Result |
 |---|---|
 | LMS unit tests (existing + updated mocks) | 50 / 50 |
-| LMS journey against real PostgreSQL + real Operations processes | 28 / 28, five consecutive runs |
+| LMS journey against real PostgreSQL + real Operations processes | 37 / 37 |
 | LMS SQS transport (real DB, fake SQS) | 10 / 10 |
 | Operations backend (security, learners, integration API, journey, dashboard) | 79 / 79 |
-| Operations browser test (Edge headless) | 3 / 3 |
+| Operations onboarding-form browser test (Edge headless, incl. uploaded photo preview) | 3 / 3 |
+| LMS "Emails & Sync" browser check | 9 / 9 |
+| Operations "Integrations" browser check (permissions + retries) | 11 / 11 |
 
 Real defects the tests found while building this (all fixed): a time-zone bug in the queue queries (retries could fire hours
 early or late depending on the database time zone), an unordered claim that could reorder a batch of emails, a cross-origin
 image policy regression that hid uploaded photos, and the rupee glyph in the PDF.
 
 ## Pending / needs your decision
-1. **`server.js` needs one hunk** (raw-body capture for signature checks). It sits in a file that also holds your rename edits, so it is **not committed**: see the exact diff in the hand-over message.
-2. `@aws-sdk/client-sqs` is not a dependency (adding it edits `package.json`).
-3. Real SQS and CloudWatch have never been exercised (need the AWS resources).
-4. Browser checks of the two admin screens.
-5. The form pre-ticks "Trading & investment understanding" (existing default); you may want it empty for course-specific answers.
-6. Re-purchase after a refund: if onboarding for that enrollment was already completed it is kept (confirmation email, no new link); if it was never completed a fresh link is issued.
-7. Free-course and admin/teacher enrollments do not pass through payment, so they get no invoice, link or sync event (by design; say if you want them to).
-8. On first enablement the sweep will announce **every existing eligible learner** to Operations (100 per minute). Tell me if you want a switch to hold that back.
+1. `@aws-sdk/client-sqs` is **not** a dependency (adding it would edit `package.json`). The first deployment keeps the tested database outbox + worker; SQS and CloudWatch stay prepared, not enabled.
+2. Real SQS / CloudWatch have never been exercised.
+3. **Operations has one uncommitted change** (`backend/services/lmsSync.js`: accept `payment_status: NOT_APPLICABLE` and `onboarding_required: false`). It must be committed and pushed with Operations before free/manual enrollments or the backfill are enabled.
+4. A real Gmail send is untested (needs the production SMTP configuration).
+5. The onboarding form pre-ticks one "reasons" checkbox by default (existing behaviour).
+6. Cosmetic: two sentences run together on the Operations overview card.
+7. Obsolete Render/Vercel references in the LMS repo are not cleaned up yet.
 
 ## Production-configured
 **Nothing.** No server, database, DNS or AWS resource has been changed. Enabling steps are in the hand-over message and in

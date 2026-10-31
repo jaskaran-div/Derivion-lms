@@ -9,6 +9,7 @@
 const prisma = require('../config/database');
 const { sendEmail, emailTemplates, emailConfigured } = require('../config/email');
 const { isPlaceholderEmail } = require('../utils/credentials');
+const { isEnabled: integrationEnabled } = require('../config/integration');
 
 const EMAIL_CONCURRENCY = 3;
 
@@ -71,12 +72,15 @@ const notifyUser = (userId, notification, options) => notifyUsers([userId], noti
 const notifyEnrollment = async (userId, courseId) => {
   const course = await prisma.course.findUnique({ where: { id: courseId }, select: { title: true, slug: true } });
   if (!course) return;
+  // Learners who are synchronized with Operations receive the onboarding email instead of this generic one
+  const learner = integrationEnabled() ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+  const replacedByOnboardingEmail = Boolean(learner) && require('./lifecycle').eligible(learner);
   await notifyUser(userId, {
     title: 'You have a new course',
     message: `You have been enrolled in "${course.title}". Open it from My Courses to start learning.`,
     type: 'SUCCESS',
     link: `/courses/${course.slug}`,
-  }, { email: true });
+  }, { email: !replacedByOnboardingEmail });
 };
 
 module.exports = { notifyUsers, notifyUser, notifyEnrollment, recipientsFor };

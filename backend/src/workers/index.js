@@ -17,13 +17,16 @@ let stopping = false;
 let timer;
 let lastHousekeeping = 0;
 
-// Slower jobs, about once a minute: announce eligible learners nobody announced yet, and queue due onboarding reminders
+// Slower jobs, about once a minute: catch-up announcements (learner backfill is opt-in) and due onboarding reminders
 const housekeeping = async () => {
   if (Date.now() - lastHousekeeping < HOUSEKEEPING_MS) return;
   lastHousekeeping = Date.now();
-  const learners = await lifecycle.sweepUnsyncedLearners();
+  const learners = await lifecycle.sweepUnsyncedLearners();          // no-op unless LEARNER_SYNC_SWEEP is on
+  const enrollments = await lifecycle.sweepUnsyncedEnrollments();    // always covers the last 7 days; older only if the sweep is on
   const reminders = await lifecycle.queueOnboardingReminders();
-  if (learners || reminders) logger.info(`[worker] queued ${learners} learner(s) and ${reminders} onboarding reminder(s)`);
+  if (learners || enrollments || reminders) {
+    logger.info(`[worker] queued ${learners} learner(s), ${enrollments} enrollment(s) and ${reminders} onboarding reminder(s)`);
+  }
 };
 
 const tick = async () => {

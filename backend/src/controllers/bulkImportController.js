@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/database');
+const lifecycle = require('../services/lifecycle');
 const { generateUsername, generatePassword, studentEmail } = require('../utils/credentials');
 const { teacherSchoolId } = require('../services/learners');
 const { logAudit } = require('./auditController');
@@ -236,6 +237,7 @@ const importStudents = async (req, res) => {
               data: { totalStudents: { increment: 1 } },
             });
             enrolledCourses.push(courseId);
+            await lifecycle.afterEnrollmentCreated({ userId: student.id, courseId, source: 'bulk' });
           } catch {
             // skip invalid or duplicate enrollments
           }

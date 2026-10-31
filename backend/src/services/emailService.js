@@ -127,6 +127,25 @@ const SIMPLE = {
       },
     };
   },
+  // Enrollment without a payment (free course, or added by Derivion / the school): no amount, no invoice
+  'enrollment-onboarding': async (log) => {
+    const d = log.data;
+    const tokenRow = await prisma.onboardingToken.findUnique({ where: { id: d.tokenRowId } });
+    if (!tokenRow) throw new Error('Onboarding token for this email no longer exists');
+    return {
+      subject: d.free ? `You are enrolled: ${d.courseTitle} — complete your onboarding` : `You have been enrolled: ${d.courseTitle} — complete your onboarding`,
+      vars: {
+        firstName: d.firstName, courseTitle: d.courseTitle, courseDetails: d.courseDetails,
+        intro: (d.free ? 'You are now enrolled in this free course. ' : 'You have been enrolled in this course. ')
+          + (d.returning
+            ? 'We already have your details from your earlier enrollment, so onboarding only takes a minute: review them and answer the few course-specific questions.'
+            : 'Please complete a short onboarding form so our team can set you up. Details we already know are filled in for you.'),
+        details: row('Enrollment ID', d.enrollmentId) + row('Enrollment type', d.sourceLabel) + row('Payment', 'No payment required')
+          + row('Link valid until', longDate(tokenRow.expiresAt)),
+        action: button(onboardingTokens.linkFor(tokenRow), 'Complete onboarding'),
+      },
+    };
+  },
   'onboarding-completed': async (log) => {
     const d = log.data;
     return {

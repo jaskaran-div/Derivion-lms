@@ -25,4 +25,12 @@ const isEnabled = () => {
   return Boolean(c.apiUrl && c.secret.length >= 32 && c.tokenSecret.length >= 32);
 };
 
-module.exports = { config, isEnabled, secrets };
+/**
+ * LEARNER_SYNC_SWEEP controls the *historical* reconciliation: announcing every eligible learner (and their existing
+ * enrollments) that was never announced. It is OFF unless set to on/true/1, so switching the integration on does not
+ * flood Operations; enable it deliberately once the connection has been verified with a few test learners.
+ * Events for learners verified and enrollments created from now on are always queued, whatever this is set to.
+ */
+const sweepEnabled = () => ['on', 'true', '1', 'yes'].includes(String(process.env.LEARNER_SYNC_SWEEP || '').toLowerCase());
+
+module.exports = { config, isEnabled, secrets, sweepEnabled };

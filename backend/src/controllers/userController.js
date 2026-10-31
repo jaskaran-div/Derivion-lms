@@ -189,6 +189,7 @@ const enrollUser = async (req, res) => {
 
     const enrollment = await prisma.enrollment.create({ data: { userId, courseId } });
     await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
+    await lifecycle.afterEnrollmentCreated({ userId, courseId, source: 'admin' });
     notifyEnrollment(userId, courseId).catch(() => {});
 
     res.status(201).json({ success: true, message: 'User enrolled.', data: enrollment });

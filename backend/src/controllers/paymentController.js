@@ -55,6 +55,8 @@ const createOrder = async (req, res) => {
         ? await prisma.enrollment.update({ where: { id: existingEnrollment.id }, data: { status: 'ACTIVE' } })
         : await prisma.enrollment.create({ data: { userId, courseId } });
       await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
+      // Free enrollment: no payment and no invoice; sync to Operations + onboarding link for eligible learners
+      await lifecycle.afterEnrollmentCreated({ userId, courseId, source: 'free' });
       return res.json({ success: true, message: 'Enrolled successfully (free course).', data: { enrollment } });
     }
 
