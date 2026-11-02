@@ -4,15 +4,24 @@ import "./globals.css";
 import { Toaster } from "react-hot-toast";
 import ClientErrorReporter from "@/components/ClientErrorReporter";
 
+
 export const metadata: Metadata = {
   title: {
-    default: "Derivion LMS - Learn. Grow. Succeed.",
-    template: "%s | Derivion LMS",
+    default: "Derivion Learning Hub | Learn. Grow. Succeed.",
+    template: "%s | Derivion Learning Hub",
   },
   description:
-    "Derivion LMS is a comprehensive learning management system with courses, assessments, and certificates to accelerate your career.",
-  keywords: ["LMS", "online learning", "courses", "education", "e-learning"],
+    "Derivion Learning Hub is a professional learning platform offering courses, assessments, and certificates to help learners develop skills and advance their careers.",
+  keywords: [
+    "Derivion Learning Hub",
+    "online learning",
+    "professional courses",
+    "skills development",
+    "online assessments",
+    "course certificates",
+  ],
 };
+
 
 // Self-hosted by Next (no render-blocking request to Google)
 const outfit = Outfit({ subsets: ["latin"], weight: ["300", "400", "500", "600", "700", "800"], variable: "--font-outfit", display: "swap" });

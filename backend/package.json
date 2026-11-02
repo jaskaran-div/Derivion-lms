@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Derivion LMS Backend API",
+  "description": "Derivion Learning Hub Backend API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

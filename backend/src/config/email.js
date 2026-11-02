@@ -1,7 +1,7 @@
 const nodemailer = require('nodemailer');
 
 // Only SMTP_USER and SMTP_PASS are required: the server defaults to Gmail and the sender to SMTP_USER
-process.env.APP_NAME = process.env.APP_NAME || 'Derivion LMS';
+process.env.APP_NAME = process.env.APP_NAME || 'Derivion Learning Hub';
 process.env.APP_URL = process.env.APP_URL || (process.env.CLIENT_URL || 'http://localhost:3000').split(',')[0].trim();
 const SMTP_PORT = parseInt(process.env.SMTP_PORT, 10) || 587;
 
@@ -13,6 +13,10 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  // Fail fast when SMTP is unreachable (e.g. hosts that block outbound SMTP) instead of hanging the request
+  connectionTimeout: 10_000,
+  greetingTimeout: 10_000,
+  socketTimeout: 20_000,
 });
 
 // User-supplied values (names, course titles) must not be interpreted as HTML
@@ -205,7 +209,7 @@ const sendEmail = async ({ to, subject, html }) => {
     });
     return true;
   } catch (error) {
-    console.error('Email sending failed:', error);
+    console.error('Email sending failed:', error.message || error);
     // Don't throw - email failures shouldn't break the request
     return false;
   }

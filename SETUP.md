@@ -1,4 +1,4 @@
-# 🎓 Derivion LMS — Setup Guide
+# 🎓 Derivion Learning Hub — Setup Guide
 
 A complete Learning Management System with Admin & Student portals, Razorpay payments, AWS S3/CloudFront video hosting, and PostgreSQL database.
 
@@ -68,7 +68,7 @@ SMTP_PORT=587
 SMTP_USER=your_email@gmail.com
 SMTP_PASS=your_gmail_app_password
 FROM_EMAIL=noreply@derivion.com
-FROM_NAME=Derivion LMS
+FROM_NAME=Derivion Learning Hub
 ```
 
 The local environment file must stay untracked. Use `backend/.env.example` as

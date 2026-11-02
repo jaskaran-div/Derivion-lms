@@ -81,7 +81,7 @@ export default function CertificateVerifyPage() {
 
               <h2 className="verify-heading">Certificate Verified</h2>
               <p className="verify-desc">
-                This certificate was legitimately issued by <strong>Derivion LMS</strong> and is authentic.
+                This certificate was legitimately issued by <strong>Derivion Learning Hub</strong> and is authentic.
               </p>
 
               <div className="cert-detail-card">
@@ -127,7 +127,7 @@ export default function CertificateVerifyPage() {
 
               <div className="cert-authenticity-note">
                 <Shield size={14} />
-                This verification was performed against the Derivion LMS database in real-time.
+                This verification was performed against the Derivion Learning Hub database in real-time.
                 The certificate details above are official and have not been altered.
               </div>
             </div>
@@ -135,7 +135,7 @@ export default function CertificateVerifyPage() {
         </div>
 
         <div className="verify-footer">
-          <p>© {new Date().getFullYear()} Derivion LMS · Certificate Verification System</p>
+          <p>© {new Date().getFullYear()} Derivion Learning Hub · Certificate Verification System</p>
           <Link href="/" className="verify-home-link">Go to platform →</Link>
         </div>
       </div>

@@ -143,7 +143,7 @@ const createApp = (limiters) => {
   app.get('/api/health', (req, res) => {
     res.json({
       success: true,
-      message: 'Derivion LMS API is running',
+      message: 'Derivion Learning Hub API is running',
       timestamp: new Date().toISOString(),
       cache: cache.isRedisReady() ? 'redis' : 'memory',
     });
@@ -185,7 +185,7 @@ const start = async () => {
 
   const PORT = process.env.PORT || 5000;
   const server = app.listen(PORT, () => {
-    logger.info(`Derivion LMS API listening on port ${PORT} (${process.env.NODE_ENV || 'development'})`);
+    logger.info(`Derivion Learning Hub API listening on port ${PORT} (${process.env.NODE_ENV || 'development'})`);
     ensureBucketCors();
     startCleanupScheduler();
   });

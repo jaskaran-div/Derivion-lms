@@ -164,7 +164,7 @@ export default function HomePage() {
       </section>
 
       <footer style={{ marginTop: 40, padding: "20px 0", textAlign: "center", fontSize: 13, color: "var(--gray-500)" }}>
-        © {new Date().getFullYear()} Derivion LMS · <Link href="/login">Log in</Link>
+        © {new Date().getFullYear()} Derivion Learning Hub · <Link href="/login">Log in</Link>
       </footer>
     </PublicShell>
   );

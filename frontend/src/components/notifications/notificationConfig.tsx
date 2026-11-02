@@ -85,7 +85,7 @@ export const teacherAudienceOptions = [
 
 export const adminTemplates = [
   {
-    title: "Welcome to Derivion LMS! 🎓",
+    title: "Welcome to Derivion Learning Hub! 🎓",
     message:
       "We're thrilled to welcome you to our learning community. Explore courses, track your lessons, and boost your skills today!",
     type: "SUCCESS",

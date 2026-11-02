@@ -6,7 +6,7 @@ const cache = require('../config/cache');
 
 const DEFAULTS = {
   general: {
-    siteName: 'Derivion LMS',
+    siteName: 'Derivion Learning Hub',
     siteDescription: 'Learn. Grow. Succeed.',
     contactEmail: 'support@derivion.com',
     currency: 'INR',

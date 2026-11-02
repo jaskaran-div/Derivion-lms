@@ -13,7 +13,7 @@ const VIOLET = '#6d3df5';
 const INK = '#111318';
 const MUTED = '#6b7280';
 
-const renderCertificatePdf = (cert, out, { siteName = 'Derivion LMS', verifyUrl } = {}) => {
+const renderCertificatePdf = (cert, out, { siteName = 'Derivion Learning Hub', verifyUrl } = {}) => {
   const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 0, info: { Title: `Certificate ${cert.certificateNo}` } });
   doc.pipe(out);
 

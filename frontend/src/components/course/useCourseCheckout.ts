@@ -78,7 +78,7 @@ export function useCourseCheckout(course: Course | null, user: User | null, onEn
         amount: amountInPaise || Math.round(amount * 100),
         currency: currency || "INR",
         checkout_config_id: checkoutConfigId,
-        name: "Derivion LMS",
+        name: "Derivion Learning Hub",
         description: course.title,
         order_id: orderId,
         prefill: {

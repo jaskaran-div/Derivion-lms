@@ -11,7 +11,7 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
 
   const [general, setGeneral] = useState({
-    siteName: "Derivion LMS",
+    siteName: "Derivion Learning Hub",
     siteDescription: "Learn. Grow. Succeed.",
     contactEmail: "support@derivion.com",
     currency: "INR",
@@ -246,7 +246,7 @@ export default function AdminSettingsPage() {
                 </div>
                 {[
                   { label: "Email Provider", value: "Nodemailer / SMTP" },
-                  { label: "From Name", value: "Derivion LMS" },
+                  { label: "From Name", value: "Derivion Learning Hub" },
                   { label: "From Address", value: "noreply@derivion.com" },
                 ].map((item, i) => (
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid var(--gray-100)" }}>

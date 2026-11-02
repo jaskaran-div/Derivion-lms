@@ -14,7 +14,7 @@ function recordTest(name, passed, details) {
 
 async function runAudit() {
   console.log('====================================================');
-  console.log('   DERIVION LMS — PRODUCTION READINESS AUDIT SUITE  ');
+  console.log('   DERIVION LEARNING HUB — PRODUCTION READINESS AUDIT SUITE  ');
   console.log('====================================================\n');
 
   try {
