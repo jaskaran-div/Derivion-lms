@@ -1,3 +1,5 @@
+> **Update:** Operations will run on the **same EC2 server** as the LMS, not a separate instance. Track A (Operations) is now described in the Operations repo's `docs/PRODUCTION-DEPLOYMENT-EC2.md`; sections B-E below (LMS migration, environment, end-to-end test, backfill) still apply. Environment variables: `LMS_PRODUCTION_ENVIRONMENT.md`.
+
 # Deployment guide: Operations + LMS integration
 
 You run every command below yourself. Nothing here has been run. Replace `<PLACEHOLDERS>`; never paste passwords, secrets or
