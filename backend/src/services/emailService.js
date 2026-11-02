@@ -8,16 +8,13 @@
  *
  * Statuses: PENDING -> SENDING -> SENT | (back to PENDING with backoff) | FAILED.
  */
-const fs = require('fs');
-const path = require('path');
 const prisma = require('../config/database');
-const { config } = require('../config/integration');
+const { config, isEnabled } = require('../config/integration');
 const invoices = require('./invoices');
 const onboardingTokens = require('./onboardingTokens');
 const outbox = require('./outbox');
-const { isEnabled } = require('../config/integration');
+const L = require('./emailLayout');
 
-const TEMPLATE_DIR = path.join(__dirname, '../templates/email');
 const MAX_ATTEMPTS = parseInt(process.env.EMAIL_MAX_ATTEMPTS, 10) || 5;
 const BASE_DELAY_MS = 60 * 1000;
 
@@ -27,14 +24,12 @@ const getProvider = () => provider || (provider = require(`./emailProviders/${pr
 const setProvider = (p) => { provider = p; };
 
 // ---- templates ---------------------------------------------------------------------------------------------------
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-// {{name}} is HTML-escaped; {{{name}}} is inserted as-is and is only ever used for markup produced by this file
-const fill = (html, vars) => html
-  .replace(/\{\{\{(\w+)\}\}\}/g, (_, k) => String(vars[k] ?? ''))
-  .replace(/\{\{(\w+)\}\}/g, (_, k) => esc(vars[k]));
-const loadTemplate = (name) => fs.readFileSync(path.join(TEMPLATE_DIR, `${name}.html`), 'utf8');
-
 const longDate = (d) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+const money = (d) => invoices.formatMoney(d.amount, d.currency);
+const greeting = (firstName) => L.paragraph(`Hi ${firstName || 'there'},`);
+const courseBlock = (d, tone = 'success') => L.callout(d.courseTitle, d.courseDetails || '', tone);
+const invoiceAttachment = (invoice, pdf) => [{ filename: `${invoice.invoiceNumber}.pdf`, content: pdf, contentType: 'application/pdf' }];
+const onboardingBlock = (url) => L.button(url, 'Complete onboarding') + L.linkFallback(url);
 
 /** Each template knows how to turn its stored data into subject/html/attachments. */
 const BUILDERS = {
@@ -45,119 +40,133 @@ const BUILDERS = {
       prisma.onboardingToken.findUnique({ where: { id: d.tokenRowId } }),
     ]);
     if (!tokenRow) throw new Error('Onboarding token for this email no longer exists');
-    const c = config();
-    const vars = {
-      appName: c.appName,
-      firstName: d.firstName,
-      courseTitle: d.courseTitle,
-      courseDetails: d.courseDetails,
-      enrollmentRef: d.enrollmentId,
-      amount: invoices.formatMoney(d.amount, d.currency),
-      paymentStatus: 'Paid',
-      paymentReference: d.paymentReference || '—',
-      invoiceNumber: invoice.invoiceNumber,
-      onboardingUrl: onboardingTokens.linkFor(tokenRow),
-      expiresOn: longDate(tokenRow.expiresAt),
-      onboardingIntro: d.returning
-        ? 'We already have your details from your earlier enrollment, so this will only take a minute: review them and answer the few course-specific questions.'
-        : 'Please complete a short onboarding form so our team can set you up. Details we already know are filled in for you.',
-      supportLine: c.supportEmail ? `Questions? Write to ${c.supportEmail}.` : '',
-    };
-    return {
-      subject: `Payment confirmed: ${d.courseTitle} — complete your onboarding`,
-      html: fill(loadTemplate('purchase-onboarding'), vars),
-      attachments: [{ filename: `${invoice.invoiceNumber}.pdf`, content: pdf, contentType: 'application/pdf' }],
-    };
+    const url = onboardingTokens.linkFor(tokenRow);
+    const intro = d.returning
+      ? 'We already have your details from your earlier enrollment, so this will only take a minute: review them and answer the few course-specific questions.'
+      : 'Please complete a short onboarding form so our team can set you up. Details we already know are filled in for you.';
+    const html = L.render(
+      L.heading('Payment confirmed')
+      + greeting(d.firstName)
+      + L.paragraph('Thank you for enrolling. Your payment was received and your place in the course is confirmed.')
+      + courseBlock(d)
+      + L.details([
+        ['Enrollment ID', d.enrollmentId],
+        ['Amount paid', money(d)],
+        ['Payment status', 'Paid'],
+        ['Payment reference', d.paymentReference || '—'],
+        ['Invoice', `${invoice.invoiceNumber} (PDF attached)`],
+      ])
+      + L.subheading('Next step: complete your onboarding')
+      + L.paragraph(intro)
+      + onboardingBlock(url)
+      + L.paragraph(`This personal link is valid until ${longDate(tokenRow.expiresAt)} and can be submitted once. Please do not share it.`, { muted: true, small: true })
+      + L.paragraph('You can start learning right away from your dashboard.'),
+      { preheader: `Your payment for ${d.courseTitle} is confirmed. One more step: complete your onboarding.`, reason: `You received this email because you purchased a course on ${config().appName}.` },
+    );
+    return { subject: `Payment confirmed: ${d.courseTitle} — complete your onboarding`, html, attachments: invoiceAttachment(invoice, pdf) };
   },
-};
 
-
-// ---- templates that share the standard layout --------------------------------------------------------------------
-const money = (d) => invoices.formatMoney(d.amount, d.currency);
-const row = (label, value) => `<tr><td style="padding:7px 0;color:#6b7280;border-top:1px solid #eef0f3;">${esc(label)}</td><td style="padding:7px 0;text-align:right;font-weight:600;border-top:1px solid #eef0f3;">${esc(value)}</td></tr>`;
-const button = (url, label) => `<p style="text-align:center;margin:18px 0;"><a href="${esc(url)}" style="display:inline-block;background:#0f1115;color:#ffffff;padding:13px 30px;border-radius:999px;text-decoration:none;font-weight:600;">${esc(label)}</a></p>`;
-
-const withLayout = (name, vars) => fill(loadTemplate('layout'), { ...vars, content: fill(loadTemplate(name), vars) });
-
-const common = () => {
-  const c = config();
-  return { appName: c.appName, supportLine: c.supportEmail ? `Questions? Write to ${c.supportEmail}.` : '' };
-};
-
-const SIMPLE = {
   // Payment confirmation without an onboarding step: onboarding already done for this enrollment, or a duplicate payment
   'purchase-confirmation': async (log) => {
     const d = log.data;
     const { invoice, pdf } = await invoices.getPdf(d.invoiceId);
+    const html = L.render(
+      L.heading(d.duplicate ? 'Additional payment received' : 'Payment confirmed')
+      + greeting(d.firstName)
+      + L.paragraph(d.duplicate
+        ? 'We received an additional payment for a course you are already enrolled in. Your enrollment and onboarding are unchanged. If you did not intend to pay twice, please contact us and we will help.'
+        : 'Your payment was received. We already have your onboarding details for this course, so there is nothing more to complete.')
+      + courseBlock(d, d.duplicate ? 'warning' : 'success')
+      + L.details([
+        ['Enrollment ID', d.enrollmentId],
+        ['Amount paid', money(d)],
+        ['Payment status', 'Paid'],
+        ['Payment reference', d.paymentReference || '—'],
+        ['Invoice', `${invoice.invoiceNumber} (PDF attached)`],
+      ]),
+      { preheader: `We received your payment for ${d.courseTitle}. Your invoice is attached.`, reason: 'You received this email because a payment was made on your account.' },
+    );
     return {
       subject: d.duplicate ? `Additional payment received: ${d.courseTitle}` : `Payment confirmed: ${d.courseTitle}`,
-      vars: {
-        firstName: d.firstName, courseTitle: d.courseTitle, courseDetails: d.courseDetails,
-        intro: d.duplicate
-          ? 'We received an additional payment for a course you are already enrolled in. Your enrollment and onboarding are unchanged. If you did not intend to pay twice, please contact us and we will help.'
-          : 'Your payment was received. We already have your onboarding details for this course, so there is nothing more to complete.',
-        details: row('Enrollment ID', d.enrollmentId) + row('Amount paid', money(d)) + row('Payment status', 'Paid')
-          + row('Payment reference', d.paymentReference || '—') + row('Invoice', `${invoice.invoiceNumber} (attached PDF)`),
-        action: '',
-      },
-      attachments: [{ filename: `${invoice.invoiceNumber}.pdf`, content: pdf, contentType: 'application/pdf' }],
+      html,
+      attachments: invoiceAttachment(invoice, pdf),
     };
   },
+
   'refund-confirmation': async (log) => {
     const d = log.data;
-    return {
-      subject: `Refund processed: ${d.courseTitle}`,
-      vars: {
-        firstName: d.firstName, courseTitle: d.courseTitle, courseDetails: '',
-        intro: 'Your refund has been processed and access to this course has been removed. The amount normally reaches your original payment method within 5–7 working days, depending on your bank.',
-        details: row('Refunded amount', money(d)) + row('Payment reference', d.paymentReference || '—') + (d.refundId ? row('Refund reference', d.refundId) : ''),
-        action: '',
-      },
-    };
+    const html = L.render(
+      L.heading('Your refund has been processed')
+      + greeting(d.firstName)
+      + L.paragraph('Your refund has been processed and access to this course has been removed. The amount normally reaches your original payment method within 5–7 working days, depending on your bank.')
+      + L.callout(d.courseTitle, '', 'info')
+      + L.details([
+        ['Refunded amount', money(d)],
+        ['Payment reference', d.paymentReference || '—'],
+        ['Refund reference', d.refundId],
+      ]),
+      { preheader: `Your refund for ${d.courseTitle} has been processed.`, reason: 'You received this email because a refund was issued on your account.' },
+    );
+    return { subject: `Refund processed: ${d.courseTitle}`, html };
   },
+
   'payment-failed': async (log) => {
     const d = log.data;
-    return {
-      subject: `Your payment for ${d.courseTitle} did not go through`,
-      vars: {
-        firstName: d.firstName, courseTitle: d.courseTitle, courseDetails: '',
-        intro: 'Your payment could not be completed. If an amount was debited, your bank will normally reverse it automatically within a few working days.',
-        details: row('Amount', money(d)) + (d.reason ? row('Reason', d.reason) : ''),
-        action: d.retryUrl ? button(d.retryUrl, 'Try again') : '',
-      },
-    };
+    const html = L.render(
+      L.heading('Your payment did not go through')
+      + greeting(d.firstName)
+      + L.paragraph('Your payment could not be completed. If an amount was debited, your bank will normally reverse it automatically within a few working days.')
+      + L.callout(d.courseTitle, '', 'warning')
+      + L.details([['Amount', money(d)], ['Reason', d.reason]])
+      + (d.retryUrl ? L.button(d.retryUrl, 'Try again') : ''),
+      { preheader: `Your payment for ${d.courseTitle} could not be completed.`, reason: 'You received this email because a payment attempt on your account did not succeed.' },
+    );
+    return { subject: `Your payment for ${d.courseTitle} did not go through`, html };
   },
+
   // Enrollment without a payment (free course, or added by Derivion / the school): no amount, no invoice
   'enrollment-onboarding': async (log) => {
     const d = log.data;
     const tokenRow = await prisma.onboardingToken.findUnique({ where: { id: d.tokenRowId } });
     if (!tokenRow) throw new Error('Onboarding token for this email no longer exists');
+    const url = onboardingTokens.linkFor(tokenRow);
+    const html = L.render(
+      L.heading(d.free ? 'You are enrolled' : 'You have been enrolled')
+      + greeting(d.firstName)
+      + L.paragraph((d.free ? 'You are now enrolled in this free course. ' : 'You have been enrolled in this course. ')
+        + (d.returning
+          ? 'We already have your details from your earlier enrollment, so onboarding only takes a minute: review them and answer the few course-specific questions.'
+          : 'Please complete a short onboarding form so our team can set you up. Details we already know are filled in for you.'))
+      + courseBlock(d)
+      + L.details([
+        ['Enrollment ID', d.enrollmentId],
+        ['Enrollment type', d.sourceLabel],
+        ['Payment', 'No payment required'],
+        ['Link valid until', longDate(tokenRow.expiresAt)],
+      ])
+      + onboardingBlock(url)
+      + L.paragraph('This personal link can be submitted once. Please do not share it.', { muted: true, small: true }),
+      { preheader: `You are enrolled in ${d.courseTitle}. Complete your onboarding to get set up.`, reason: 'You received this email because you were enrolled in a course.' },
+    );
     return {
       subject: d.free ? `You are enrolled: ${d.courseTitle} — complete your onboarding` : `You have been enrolled: ${d.courseTitle} — complete your onboarding`,
-      vars: {
-        firstName: d.firstName, courseTitle: d.courseTitle, courseDetails: d.courseDetails,
-        intro: (d.free ? 'You are now enrolled in this free course. ' : 'You have been enrolled in this course. ')
-          + (d.returning
-            ? 'We already have your details from your earlier enrollment, so onboarding only takes a minute: review them and answer the few course-specific questions.'
-            : 'Please complete a short onboarding form so our team can set you up. Details we already know are filled in for you.'),
-        details: row('Enrollment ID', d.enrollmentId) + row('Enrollment type', d.sourceLabel) + row('Payment', 'No payment required')
-          + row('Link valid until', longDate(tokenRow.expiresAt)),
-        action: button(onboardingTokens.linkFor(tokenRow), 'Complete onboarding'),
-      },
+      html,
     };
   },
+
   'onboarding-completed': async (log) => {
     const d = log.data;
-    return {
-      subject: `Onboarding received: ${d.courseTitle}`,
-      vars: {
-        firstName: d.firstName, courseTitle: d.courseTitle, courseDetails: '',
-        intro: 'Thank you. We have received your onboarding details for this course and our team will review them. You can continue learning at any time.',
-        details: '',
-        action: d.courseUrl ? button(d.courseUrl, 'Go to your course') : '',
-      },
-    };
+    const html = L.render(
+      L.heading('Onboarding received')
+      + greeting(d.firstName)
+      + L.paragraph('Thank you. We have received your onboarding details for this course and our team will review them. You can continue learning at any time.')
+      + L.callout(d.courseTitle, '', 'success')
+      + (d.courseUrl ? L.button(d.courseUrl, 'Go to your course') : ''),
+      { preheader: `We have received your onboarding details for ${d.courseTitle}.`, reason: 'You received this email because you completed onboarding for a course.' },
+    );
+    return { subject: `Onboarding received: ${d.courseTitle}`, html };
   },
+
   'onboarding-reminder': async (log) => {
     const d = log.data;
     const tokenRow = await prisma.onboardingToken.findUnique({ where: { id: d.tokenRowId } });
@@ -166,24 +175,18 @@ const SIMPLE = {
       err.skip = true;
       throw err;
     }
-    return {
-      subject: `Reminder: complete your onboarding for ${d.courseTitle}`,
-      vars: {
-        firstName: d.firstName, courseTitle: d.courseTitle, courseDetails: '',
-        intro: `A quick reminder to complete your onboarding. Your personal link is valid until ${longDate(tokenRow.expiresAt)}.`,
-        details: '',
-        action: button(onboardingTokens.linkFor(tokenRow), 'Complete onboarding'),
-      },
-    };
+    const url = onboardingTokens.linkFor(tokenRow);
+    const html = L.render(
+      L.heading('A quick reminder')
+      + greeting(d.firstName)
+      + L.paragraph(`Please complete your onboarding so our team can finish setting you up. Your personal link is valid until ${longDate(tokenRow.expiresAt)}.`)
+      + courseBlock(d, 'info')
+      + onboardingBlock(url),
+      { preheader: `Complete your onboarding for ${d.courseTitle}.`, reason: 'You received this email because your onboarding for a course is still pending.' },
+    );
+    return { subject: `Reminder: complete your onboarding for ${d.courseTitle}`, html };
   },
 };
-
-for (const [name, make] of Object.entries(SIMPLE)) {
-  BUILDERS[name] = async (log) => {
-    const { vars, ...rest } = await make(log);
-    return { ...rest, html: withLayout('simple', { ...common(), ...vars }) };
-  };
-}
 
 // ---- queue -------------------------------------------------------------------------------------------------------
 /** Queue an email. `db` may be a transaction client. Returns true when newly queued, false when the dedupeKey already existed. */
@@ -276,4 +279,4 @@ const retry = async (id) => {
   return count === 1;
 };
 
-module.exports = { queue, processBatch, retry, setProvider, getProvider, claimDue, sendOne, MAX_ATTEMPTS };
+module.exports = { queue, processBatch, retry, setProvider, getProvider, claimDue, sendOne, MAX_ATTEMPTS, BUILDERS };

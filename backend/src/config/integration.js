@@ -16,7 +16,7 @@ const config = () => {
     tokenSecret: e.ONBOARDING_TOKEN_SECRET || '',
     tokenTtlDays: Math.min(365, Math.max(1, parseInt(e.ONBOARDING_TOKEN_TTL_DAYS, 10) || 30)),
     appName: e.APP_NAME || 'Derivion Learning Hub',
-    supportEmail: e.ADMIN_EMAIL || e.SMTP_USER || '',
+    supportEmail: e.SUPPORT_EMAIL || e.ADMIN_EMAIL || e.SMTP_USER || '',
   };
 };
 

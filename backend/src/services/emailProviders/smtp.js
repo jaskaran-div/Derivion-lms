@@ -4,6 +4,7 @@
  * and selecting it with EMAIL_PROVIDER; templates and the queue do not change.
  */
 const nodemailer = require('nodemailer');
+const { toText } = require('../emailLayout');
 
 let transporter;
 const getTransporter = () => {
@@ -32,6 +33,7 @@ const send = async ({ to, subject, html, attachments, messageId }) => {
     to,
     subject,
     html,
+    text: toText(html),
     attachments,
     ...(messageId && { messageId }),
   });

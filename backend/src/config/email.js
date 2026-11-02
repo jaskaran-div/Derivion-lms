@@ -19,180 +19,91 @@ const transporter = nodemailer.createTransport({
   socketTimeout: 20_000,
 });
 
-// User-supplied values (names, course titles) must not be interpreted as HTML
-const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]);
+// Same layout and building blocks as the queued emails (services/emailService.js), so every message looks alike
+const L = require('../services/emailLayout');
 
+const hi = (name) => L.paragraph(`Hi ${name || 'there'},`);
+
+// Subjects are plain text (not HTML), so they use the raw values; only the markup is escaped.
 const emailTemplates = {
-  welcome: (rawFirstName, firstName = esc(rawFirstName)) => ({
-    subject: `Welcome to ${process.env.APP_NAME}! 🎓`,
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>
-          body { font-family: 'Inter', Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
-          .container { max-width: 600px; margin: 40px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
-          .header { background: linear-gradient(135deg, #1d4ed8, #6d3df5); padding: 40px; text-align: center; }
-          .header h1 { color: #fff; margin: 0; font-size: 28px; font-weight: 700; }
-          .body { padding: 40px; }
-          .body p { color: #374151; line-height: 1.7; font-size: 16px; }
-          .btn { display: inline-block; background: linear-gradient(135deg, #1d4ed8, #6d3df5); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0; }
-          .footer { background: #f8fafc; padding: 24px 40px; text-align: center; color: #6b7280; font-size: 14px; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>🎓 ${process.env.APP_NAME}</h1>
-          </div>
-          <div class="body">
-            <h2>Welcome, ${firstName}! 🎉</h2>
-            <p>We're excited to have you on board. Your account has been created successfully and you're ready to start learning!</p>
-            <p>Explore thousands of courses, track your progress, and earn certificates as you grow your skills.</p>
-            <a href="${process.env.APP_URL}/dashboard" class="btn">Start Learning →</a>
-            <p>If you have any questions, feel free to reach out to our support team.</p>
-            <p>Happy Learning,<br><strong>The ${process.env.APP_NAME} Team</strong></p>
-          </div>
-          <div class="footer">
-            <p>© 2024 ${process.env.APP_NAME}. All rights reserved.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `,
+  welcome: (firstName) => ({
+    subject: `Welcome to ${process.env.APP_NAME}`,
+    html: L.render(
+      L.heading(`Welcome, ${firstName || 'there'}!`)
+      + L.paragraph(`Your ${process.env.APP_NAME} account is ready. You can now explore our courses, learn at your own pace, track your progress and earn certificates as you complete them.`)
+      + L.button(`${L.absUrl('/dashboard')}`, 'Go to my dashboard')
+      + L.paragraph('If you have any questions, our support team is happy to help.', { muted: true }),
+      { preheader: 'Your account is ready. Start learning today.', reason: `You received this email because you created an account on ${process.env.APP_NAME}.` },
+    ),
   }),
 
-  enrollmentConfirmation: (rawFirstName, rawCourseName, firstName = esc(rawFirstName), courseName = esc(rawCourseName)) => ({
-    subject: `🎓 Enrolled in "${courseName}" - ${process.env.APP_NAME}`,
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>
-          body { font-family: Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
-          .container { max-width: 600px; margin: 40px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
-          .header { background: linear-gradient(135deg, #10b981, #059669); padding: 40px; text-align: center; }
-          .header h1 { color: #fff; margin: 0; font-size: 24px; font-weight: 700; }
-          .body { padding: 40px; }
-          .body p { color: #374151; line-height: 1.7; font-size: 16px; }
-          .btn { display: inline-block; background: linear-gradient(135deg, #1d4ed8, #6d3df5); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0; }
-          .course-box { background: #f0fdf4; border-left: 4px solid #10b981; padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 20px 0; }
-          .footer { background: #f8fafc; padding: 24px 40px; text-align: center; color: #6b7280; font-size: 14px; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>✅ Enrollment Confirmed!</h1>
-          </div>
-          <div class="body">
-            <h2>Hi ${firstName}!</h2>
-            <p>Great news! You're now enrolled in:</p>
-            <div class="course-box">
-              <strong style="font-size: 18px; color: #065f46;">${courseName}</strong>
-            </div>
-            <p>You can now access all course materials, videos, and resources. Track your progress and earn your certificate upon completion!</p>
-            <a href="${process.env.APP_URL}/dashboard" class="btn">Go to Course →</a>
-          </div>
-          <div class="footer">
-            <p>© 2024 ${process.env.APP_NAME}. All rights reserved.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `,
+  enrollmentConfirmation: (firstName, courseName) => ({
+    subject: `You're enrolled in "${courseName}"`,
+    html: L.render(
+      L.heading('Enrollment confirmed')
+      + hi(firstName)
+      + L.paragraph('Great news, you are now enrolled in:')
+      + L.callout(courseName, 'You have full access to the course materials, videos and resources.', 'success')
+      + L.paragraph('Track your progress as you learn and earn your certificate on completion.')
+      + L.button(L.absUrl('/dashboard'), 'Start learning'),
+      { preheader: `You are now enrolled in ${courseName}.`, reason: `You received this email because you enrolled in a course on ${process.env.APP_NAME}.` },
+    ),
   }),
 
-  emailVerification: (rawFirstName, verifyUrl, firstName = esc(rawFirstName)) => ({
-    subject: `Verify your email for ${process.env.APP_NAME}`,
-    html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
-      <body style="font-family: Arial, sans-serif; background: #f4f5f8; margin: 0; padding: 0;">
-        <div style="max-width: 560px; margin: 40px auto; background: #fff; border-radius: 16px; overflow: hidden;">
-          <div style="background: #1d4ed8; padding: 32px; text-align: center; color: #fff; font-size: 22px; font-weight: 700;">${esc(process.env.APP_NAME)}</div>
-          <div style="padding: 32px; color: #343a46; line-height: 1.7; font-size: 15px;">
-            <p>Hi ${firstName},</p>
-            <p>Please confirm your email address to activate your account. This link expires in 24 hours.</p>
-            <p style="text-align: center;"><a href="${verifyUrl}" style="display: inline-block; background: #0f1115; color: #fff; padding: 14px 32px; border-radius: 999px; text-decoration: none; font-weight: 600;">Verify Email</a></p>
-            <p style="color: #6b7280; font-size: 13px;">If you did not create an account, you can ignore this email.</p>
-          </div>
-        </div>
-      </body></html>`,
+  emailVerification: (firstName, verifyUrl) => ({
+    subject: `Verify your email address — ${process.env.APP_NAME}`,
+    html: L.render(
+      L.heading('Confirm your email address')
+      + hi(firstName)
+      + L.paragraph('Please confirm your email address to activate your account. This link expires in 24 hours.')
+      + L.button(verifyUrl, 'Verify email address')
+      + L.linkFallback(verifyUrl)
+      + L.paragraph('If you did not create an account, you can safely ignore this email.', { muted: true, small: true }),
+      { preheader: 'Confirm your email address to activate your account.', reason: `You received this email because this address was used to sign up on ${process.env.APP_NAME}.` },
+    ),
   }),
 
   // Any in-app notification, mirrored by email. forGuardian: written to a learner's parent/guardian.
   notification: ({ name, title, message, link, forGuardian = false }) => ({
     subject: `${title} — ${process.env.APP_NAME}`,
-    html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
-      <body style="font-family: Arial, sans-serif; background: #f4f5f8; margin: 0; padding: 0;">
-        <div style="max-width: 560px; margin: 40px auto; background: #fff; border-radius: 16px; overflow: hidden;">
-          <div style="background: #0f1115; padding: 24px; text-align: center; color: #fff; font-size: 20px; font-weight: 700;">${esc(process.env.APP_NAME)}</div>
-          <div style="padding: 32px; color: #343a46; line-height: 1.7; font-size: 15px;">
-            <p>Hi ${esc(forGuardian ? 'there' : name)},</p>
-            ${forGuardian ? `<p style="color: #6b7280; font-size: 13px;">You are receiving this as the guardian of <strong>${esc(name)}</strong>.</p>` : ''}
-            <h2 style="font-size: 18px; color: #0f1115; margin: 16px 0 8px;">${esc(title)}</h2>
-            <p style="white-space: pre-line;">${esc(message)}</p>
-            ${link ? `<p style="text-align: center; margin-top: 24px;"><a href="${esc(/^https?:\/\//.test(link) ? link : process.env.APP_URL + link)}" style="display: inline-block; background: #0f1115; color: #fff; padding: 12px 28px; border-radius: 999px; text-decoration: none; font-weight: 600;">Open ${esc(process.env.APP_NAME)}</a></p>` : ''}
-          </div>
-          <div style="padding: 16px 32px; text-align: center; color: #9ca3af; font-size: 12px; border-top: 1px solid #f0f1f4;">You received this email because you have an account on ${esc(process.env.APP_NAME)}.</div>
-        </div>
-      </body></html>`,
+    html: L.render(
+      L.heading(title)
+      + hi(forGuardian ? 'there' : name)
+      + (forGuardian ? L.paragraphHtml(`You are receiving this as the guardian of <strong>${L.esc(name)}</strong>.`, { muted: true, small: true }) : '')
+      + `<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#374151;white-space:pre-line;">${L.esc(message)}</p>`
+      + (link ? L.button(L.absUrl(link), `Open ${process.env.APP_NAME}`) : ''),
+      {
+        preheader: String(message || '').replace(/\s+/g, ' ').slice(0, 110),
+        reason: forGuardian
+          ? `You received this email as the guardian of a learner on ${process.env.APP_NAME}.`
+          : `You received this email because you have an account on ${process.env.APP_NAME}.`,
+      },
+    ),
   }),
 
-  emailOtp: (rawFirstName, otp, firstName = esc(rawFirstName)) => ({
+  emailOtp: (firstName, otp) => ({
     subject: `${otp} is your ${process.env.APP_NAME} verification code`,
-    html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
-      <body style="font-family: Arial, sans-serif; background: #f4f5f8; margin: 0; padding: 0;">
-        <div style="max-width: 560px; margin: 40px auto; background: #fff; border-radius: 16px; overflow: hidden;">
-          <div style="background: #0f1115; padding: 28px; text-align: center; color: #fff; font-size: 22px; font-weight: 700;">${esc(process.env.APP_NAME)}</div>
-          <div style="padding: 32px; color: #343a46; line-height: 1.7; font-size: 15px;">
-            <p>Hi ${firstName},</p>
-            <p>Use this code to verify your email address. It expires in 10 minutes.</p>
-            <p style="text-align: center; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #0f1115; margin: 24px 0;">${esc(otp)}</p>
-            <p style="color: #6b7280; font-size: 13px;">If you did not try to sign in, you can ignore this email and consider changing your password.</p>
-          </div>
-        </div>
-      </body></html>`,
+    html: L.render(
+      L.heading('Your verification code')
+      + hi(firstName)
+      + L.paragraph('Enter this code to verify your email address. It expires in 10 minutes.')
+      + L.codeBox(otp)
+      + L.paragraph('Never share this code with anyone. If you did not try to sign in, you can ignore this email and consider changing your password.', { muted: true, small: true }),
+      { preheader: `Your verification code is ${otp}. It expires in 10 minutes.`, reason: `You received this email because a sign-in or sign-up was attempted with this address on ${process.env.APP_NAME}.` },
+    ),
   }),
 
-  passwordReset: (rawFirstName, resetUrl, firstName = esc(rawFirstName)) => ({
-    subject: `🔒 Password Reset - ${process.env.APP_NAME}`,
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>
-          body { font-family: Arial, sans-serif; background: #f8fafc; }
-          .container { max-width: 600px; margin: 40px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
-          .header { background: linear-gradient(135deg, #f59e0b, #d97706); padding: 40px; text-align: center; }
-          .header h1 { color: #fff; margin: 0; font-size: 24px; }
-          .body { padding: 40px; }
-          .body p { color: #374151; line-height: 1.7; font-size: 16px; }
-          .btn { display: inline-block; background: #f59e0b; color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0; }
-          .warning { background: #fef3c7; border: 1px solid #f59e0b; padding: 16px; border-radius: 8px; color: #92400e; font-size: 14px; }
-          .footer { background: #f8fafc; padding: 24px; text-align: center; color: #6b7280; font-size: 14px; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>🔒 Password Reset Request</h1>
-          </div>
-          <div class="body">
-            <h2>Hi ${firstName},</h2>
-            <p>We received a request to reset your password. Click the button below to create a new password:</p>
-            <a href="${resetUrl}" class="btn">Reset Password →</a>
-            <div class="warning">⚠️ This link expires in <strong>1 hour</strong>. If you didn't request a password reset, please ignore this email.</div>
-          </div>
-          <div class="footer">
-            <p>© 2024 ${process.env.APP_NAME}. All rights reserved.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `,
+  passwordReset: (firstName, resetUrl) => ({
+    subject: `Reset your password — ${process.env.APP_NAME}`,
+    html: L.render(
+      L.heading('Reset your password')
+      + hi(firstName)
+      + L.paragraph('We received a request to reset the password for your account. Click the button below to choose a new one.')
+      + L.button(resetUrl, 'Reset password')
+      + L.linkFallback(resetUrl)
+      + L.callout('This link expires in 1 hour', 'If you did not request a password reset, you can ignore this email. Your password will not change.', 'warning'),
+      { preheader: 'Use this link within 1 hour to choose a new password.', reason: `You received this email because a password reset was requested for your ${process.env.APP_NAME} account.` },
+    ),
   }),
 };
 
@@ -206,6 +117,7 @@ const sendEmail = async ({ to, subject, html }) => {
       to,
       subject,
       html,
+      text: L.toText(html),
     });
     return true;
   } catch (error) {
