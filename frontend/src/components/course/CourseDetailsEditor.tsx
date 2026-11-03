@@ -296,11 +296,6 @@ export default function CourseDetailsEditor({ course, onSaved }: { course: Edita
                         <input id="ce-disc" className="form-control" type="number" min={0} step="1" value={form.discountPrice} onChange={(e) => set("discountPrice", e.target.value)} placeholder="Optional" />
                       </div>
                     </div>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, marginTop: 10, cursor: "pointer" }}>
-                      <input type="checkbox" checked={form.emiEnabled} onChange={(e) => set("emiEnabled", e.target.checked)} style={{ accentColor: "var(--primary)" }} />
-                      Enable EMI at checkout
-                    </label>
-                    <div className="form-hint">EMI availability depends on Razorpay and the buyer&apos;s eligibility.</div>
                   </>
                 )}
               </div>

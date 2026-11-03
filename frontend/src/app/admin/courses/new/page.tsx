@@ -456,20 +456,6 @@ export default function NewCoursePage() {
                     </div>
                   </>
                 )}
-
-                <div style={{ marginTop: 18, padding: 12, background: "var(--gray-50)", borderRadius: 10 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      {...register("emiEnabled")}
-                      style={{ width: 16, height: 16, accentColor: "var(--primary)", cursor: "pointer" }}
-                    />
-                    Enable EMI for this course
-                  </label>
-                  <div className="form-hint" style={{ marginTop: 8 }}>
-                    When enabled, eligible students may see supported EMI payment options at checkout. Availability depends on Razorpay, the payment provider and customer eligibility.
-                  </div>
-                </div>
               </div>
             </div>
 

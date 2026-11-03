@@ -63,12 +63,6 @@ const createOrder = async (req, res) => {
     const amount = parseFloat(course.discountPrice || course.price);
     const amountInPaise = Math.round(amount * 100);
     checkoutConfigId = getCheckoutConfigurationId(course.emiEnabled);
-    if (!checkoutConfigId) {
-      return res.status(503).json({
-        success: false,
-        message: 'Payment checkout configuration is not available.',
-      });
-    }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
@@ -90,7 +84,7 @@ const createOrder = async (req, res) => {
     const rzpOrder = await razorpay.orders.create({
       amount: amountInPaise,
       currency: 'INR',
-      checkout_config_id: checkoutConfigId,
+      ...(checkoutConfigId && { checkout_config_id: checkoutConfigId }),
       receipt: `rcpt_${Date.now()}_${userId.slice(0, 6)}`,
       notes: {
         userId,

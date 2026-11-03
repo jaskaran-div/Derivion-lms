@@ -219,23 +219,24 @@ describe('course EMI eligibility', () => {
     assert.equal(res.body.data.checkoutConfigId, 'config_TniERfRtPJaKjZ');
   });
 
-  it('selects the EMI configuration for an EMI-enabled course', async () => {
+  it('uses the standard configuration even for an EMI-enabled course while EMI is switched off', async () => {
     storedCourse.emiEnabled = true;
     const res = response();
     await createOrder({ body: { courseId: storedCourse.id }, user: { id: 'student-1' } }, res);
 
     assert.equal(res.statusCode, 200);
-    assert.equal(orderRequests[0].checkout_config_id, 'config_TniFJkBEcjWygb');
-    assert.equal(res.body.data.checkoutConfigId, 'config_TniFJkBEcjWygb');
+    assert.equal(orderRequests[0].checkout_config_id, 'config_TniERfRtPJaKjZ');
+    assert.equal(res.body.data.checkoutConfigId, 'config_TniERfRtPJaKjZ');
   });
 
-  it('does not create an order when the saved course configuration is missing', async () => {
+  it('creates the order without a configuration id when none is configured (default checkout)', async () => {
     delete process.env.RAZORPAY_CONFIG_STANDARD;
     const res = response();
     await createOrder({ body: { courseId: storedCourse.id }, user: { id: 'student-1' } }, res);
 
-    assert.equal(res.statusCode, 503);
-    assert.equal(orderRequests.length, 0);
+    assert.equal(res.statusCode, 200);
+    assert.equal(orderRequests.length, 1);
+    assert.equal('checkout_config_id' in orderRequests[0], false);
   });
 
   it('returns an actionable error when Razorpay cannot find the selected configuration', async () => {
