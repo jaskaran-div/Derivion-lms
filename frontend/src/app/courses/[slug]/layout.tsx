@@ -18,6 +18,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     if (!res.ok) return { title: "Course" };
     const course: PublicCourse = (await res.json()).data;
     const description = (course.shortDesc || course.description || "").replace(/\s+/g, " ").slice(0, 160);
+    // Thumbnails can be API-relative ("/api/media/..."); link previews need an absolute URL
+    if (course.thumbnail?.startsWith("/")) course.thumbnail = new URL(course.thumbnail, API).toString();
     return {
       title: course.title,
       description,

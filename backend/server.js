@@ -13,7 +13,7 @@ const authRoutes = require('./src/routes/auth');
 const apiRoutes = require('./src/routes/index');
 const courseRoutes = require('./src/routes/courses');
 const { errorHandler, notFound } = require('./src/middleware/errorHandler');
-const { ensureBucketCors } = require('./src/config/aws');
+const { ensureBucketCors, isPublicMediaKey, getPresignedDownloadUrl } = require('./src/config/aws');
 const { startCleanupScheduler } = require('./src/jobs/cleanup');
 const cache = require('./src/config/cache');
 const logger = require('./src/config/logger');
@@ -127,6 +127,23 @@ const createApp = (limiters) => {
 
   // Locally stored uploads (only used when S3 is not configured, i.e. development)
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+  // Public course images/preview videos and avatars from the private bucket: redirect to a signed URL.
+  // Mounted before the API rate limiter because one page can request many images.
+  app.use('/api/media', async (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    let key;
+    try { key = decodeURIComponent(req.path.replace(/^\/+/, '')); } catch { key = ''; }
+    if (!isPublicMediaKey(key)) return res.status(404).json({ success: false, message: 'Not found.' });
+    try {
+      const url = await getPresignedDownloadUrl(key, 6 * 60 * 60);
+      // Browsers reuse the redirect for an hour, well within the 6-hour signature
+      res.set('Cache-Control', 'public, max-age=3600');
+      return res.redirect(302, url);
+    } catch (err) {
+      return next(err);
+    }
+  });
 
   app.use(morgan(isProd ? 'combined' : 'dev', {
     stream: { write: (line) => logger.info(line.trim()) },

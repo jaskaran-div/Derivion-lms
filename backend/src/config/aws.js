@@ -105,6 +105,27 @@ const getCloudFrontUrl = (s3Key) => {
 };
 
 /**
+ * Keys that anyone may view: course thumbnails, course preview videos and avatars.
+ * Lesson content stays private and is only reachable through signed URLs.
+ */
+const PUBLIC_MEDIA_KEY = /^(courses\/[A-Za-z0-9-]+\/(thumbnails|preview)|avatars)\/[A-Za-z0-9-]+(\.[A-Za-z0-9]{1,10})?$/;
+const isPublicMediaKey = (key) => typeof key === 'string' && PUBLIC_MEDIA_KEY.test(key);
+
+const isCloudFrontConfigured = () =>
+  Boolean(CLOUDFRONT_DOMAIN) && !CLOUDFRONT_DOMAIN.includes('your-cloudfront-domain');
+
+/**
+ * URL to store for a public asset. The bucket is private, so without CloudFront the asset is
+ * served through GET /api/media/<key>, which redirects to a short-lived signed S3 URL.
+ * The path is relative so it works on the web app's domain (Next proxies /api) and the API's.
+ */
+const getPublicMediaUrl = (s3Key) => {
+  if (!s3Key) return '';
+  if (s3Key.startsWith('local://') || isCloudFrontConfigured()) return getCloudFrontUrl(s3Key);
+  return `/api/media/${s3Key}`;
+};
+
+/**
  * Upload a buffer/stream to S3 with local disk fallback
  */
 const uploadToS3 = async (buffer, key, contentType) => {
@@ -265,6 +286,8 @@ module.exports = {
   generateS3Key,
   getPresignedUploadUrl,
   getCloudFrontUrl,
+  getPublicMediaUrl,
+  isPublicMediaKey,
   uploadToS3,
   deleteFromS3,
   getPresignedDownloadUrl,

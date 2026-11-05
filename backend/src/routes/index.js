@@ -54,7 +54,7 @@ const { learnerEditBlocked } = require('../controllers/authController');
 const { notifyUsers, notifyUser } = require('../services/notify');
 const { listSessions, createSession, updateSession, deleteSession } = require('../controllers/mentorController');
 const prisma = require('../config/database');
-const { uploadToS3, generateS3Key } = require('../config/aws');
+const { uploadToS3, generateS3Key, getPublicMediaUrl } = require('../config/aws');
 const { imageUpload } = require('../middleware/upload');
 
 const adminAuth = [authenticate, authorize('ADMIN')];
@@ -387,9 +387,10 @@ router.post('/profile/avatar', ...studentAuth, imageUpload.single('avatar'), asy
     if (await learnerEditBlocked(req, res)) return;
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded.' });
     const key = generateS3Key(`avatars`, req.file.originalname);
-    const { cloudFrontUrl } = await uploadToS3(req.file.buffer, key, req.file.mimetype);
-    await prisma.user.update({ where: { id: req.user.id }, data: { avatar: cloudFrontUrl } });
-    res.json({ success: true, data: { avatar: cloudFrontUrl } });
+    const { s3Key } = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+    const url = getPublicMediaUrl(s3Key);
+    await prisma.user.update({ where: { id: req.user.id }, data: { avatar: url } });
+    res.json({ success: true, data: { avatar: url } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to upload avatar.' });
   }

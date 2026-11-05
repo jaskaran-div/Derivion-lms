@@ -1,6 +1,6 @@
 const prisma = require('../config/database');
 const cache = require('../config/cache');
-const { uploadToS3, generateS3Key, getCloudFrontUrl, deleteFromS3, isAwsConfigured, createMultipartUpload, getUploadPartUrl, completeMultipartUpload, abortMultipartUpload } = require('../config/aws');
+const { uploadToS3, generateS3Key, getCloudFrontUrl, getPublicMediaUrl, deleteFromS3, isAwsConfigured, createMultipartUpload, getUploadPartUrl, completeMultipartUpload, abortMultipartUpload } = require('../config/aws');
 
 const SORTABLE = ['createdAt', 'title', 'price', 'totalStudents', 'updatedAt'];
 const CATALOG_TTL = 120;
@@ -271,11 +271,12 @@ const uploadThumbnail = async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded.' });
 
     const key = generateS3Key(`courses/${id}/thumbnails`, req.file.originalname);
-    const { cloudFrontUrl } = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+    const { s3Key } = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+    const url = getPublicMediaUrl(s3Key);
 
-    await prisma.course.update({ where: { id }, data: { thumbnail: cloudFrontUrl } });
+    await prisma.course.update({ where: { id }, data: { thumbnail: url } });
 
-    res.json({ success: true, data: { thumbnail: cloudFrontUrl } });
+    res.json({ success: true, data: { thumbnail: url } });
   } catch (error) {
     console.error('Upload thumbnail error:', error);
     res.status(500).json({ success: false, message: 'Failed to upload thumbnail.' });
@@ -289,11 +290,12 @@ const uploadPreviewVideo = async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded.' });
 
     const key = generateS3Key(`courses/${id}/preview`, req.file.originalname);
-    const { cloudFrontUrl } = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+    const { s3Key } = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+    const url = getPublicMediaUrl(s3Key);
 
-    await prisma.course.update({ where: { id }, data: { previewVideo: cloudFrontUrl } });
+    await prisma.course.update({ where: { id }, data: { previewVideo: url } });
 
-    res.json({ success: true, data: { previewVideo: cloudFrontUrl } });
+    res.json({ success: true, data: { previewVideo: url } });
   } catch (error) {
     console.error('Upload preview video error:', error);
     res.status(500).json({ success: false, message: 'Failed to upload preview video.' });
