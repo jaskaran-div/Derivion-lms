@@ -22,7 +22,20 @@ export interface EditableCourse {
   objectives: string[];
   thumbnail?: string | null;
   previewVideo?: string | null;
+  accessMonths?: number | null;
+  accessEndDate?: string | null;
 }
+
+// Access duration choices; "date" = a fixed end date picked on the calendar
+const ACCESS_OPTIONS: { value: string; label: string }[] = [
+  { value: "lifetime", label: "Lifetime access" },
+  { value: "1", label: "1 month" },
+  { value: "3", label: "3 months" },
+  { value: "6", label: "6 months" },
+  { value: "12", label: "12 months" },
+  { value: "date", label: "Until a fixed date…" },
+];
+const istDate = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 const LEVELS = ["Beginner", "Intermediate", "Advanced", "All Levels"];
 const LANGUAGES = ["English", "Hindi", "Marathi", "Tamil", "Telugu"];
@@ -41,6 +54,8 @@ const toForm = (c: EditableCourse) => ({
   tags: c.tags || [],
   requirements: c.requirements?.length ? c.requirements : [""],
   objectives: c.objectives?.length ? c.objectives : [""],
+  accessMode: c.accessEndDate ? "date" : c.accessMonths ? String(c.accessMonths) : "lifetime",
+  accessEndDate: c.accessEndDate ? istDate(c.accessEndDate) : "",
 });
 
 type Form = ReturnType<typeof toForm>;
@@ -113,6 +128,10 @@ export default function CourseDetailsEditor({ course, onSaved }: { course: Edita
     const price = parseFloat(form.price);
     if (!form.isFree && (!Number.isFinite(price) || price < 0)) return toast.error("Enter a valid price.");
     if (form.discountPrice && parseFloat(form.discountPrice) > price) return toast.error("Discount price cannot be higher than the price.");
+    if (form.accessMode === "date" && !form.accessEndDate) return toast.error("Pick the date access ends.");
+    // Only send the access rule when it changed (an old end date may already be in the past)
+    const saved = toForm(course);
+    const accessChanged = form.accessMode !== saved.accessMode || form.accessEndDate !== saved.accessEndDate;
 
     setSaving(true);
     try {
@@ -130,6 +149,9 @@ export default function CourseDetailsEditor({ course, onSaved }: { course: Edita
         tags: form.tags,
         requirements: form.requirements.map((r) => r.trim()).filter(Boolean),
         objectives: form.objectives.map((o) => o.trim()).filter(Boolean),
+        ...(accessChanged && (form.accessMode === "date"
+          ? { accessEndDate: form.accessEndDate, accessMonths: null }
+          : { accessMonths: form.accessMode === "lifetime" ? null : Number(form.accessMode), accessEndDate: null })),
       });
       toast.success("Course details saved.");
       onSaved();
@@ -298,6 +320,32 @@ export default function CourseDetailsEditor({ course, onSaved }: { course: Edita
                     </div>
                   </>
                 )}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="ce-access">Access duration</label>
+                <select id="ce-access" className="form-control" value={form.accessMode} onChange={(e) => set("accessMode", e.target.value)}>
+                  {[...ACCESS_OPTIONS, ...(ACCESS_OPTIONS.some((o) => o.value === form.accessMode) ? [] : [{ value: form.accessMode, label: `${form.accessMode} months` }])]
+                    .map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {form.accessMode === "date" && (
+                  <input
+                    className="form-control"
+                    type="date"
+                    style={{ marginTop: 8 }}
+                    value={form.accessEndDate}
+                    onChange={(e) => set("accessEndDate", e.target.value)}
+                    aria-label="Access end date"
+                  />
+                )}
+                <div className="form-hint">
+                  {form.accessMode === "lifetime"
+                    ? "Learners keep access forever."
+                    : form.accessMode === "date"
+                      ? "Every learner's access ends on this date, whenever they enrolled."
+                      : `Each learner gets ${form.accessMode} month(s) of access from the day they enroll.`}
+                  {" "}Changes apply to new enrollments; existing learners keep their current access date.
+                </div>
               </div>
             </div>
           </div>

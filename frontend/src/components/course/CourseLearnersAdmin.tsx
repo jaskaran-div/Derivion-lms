@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { ChevronDown, ChevronUp, Download, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, Pencil, Search, X } from "lucide-react";
 import { apiErrorMessage, courseEnrollmentsAPI, downloadBlob, type CourseEnrollmentRow } from "@/lib/api";
 
 const formatDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
+  iso ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }) : "—";
+const istDate = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 const STATUS_BADGE: Record<string, string> = { ACTIVE: "badge-primary", COMPLETED: "badge-success", REFUNDED: "badge-danger" };
 
@@ -18,6 +19,10 @@ export default function CourseLearnersAdmin({ courseId, courseSlug }: { courseId
   const [status, setStatus] = useState("ALL");
   const [open, setOpen] = useState(true);
   const [exporting, setExporting] = useState(false);
+  // Inline edit of one learner's access end date
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [savingAccess, setSavingAccess] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +44,23 @@ export default function CourseLearnersAdmin({ courseId, courseSlug }: { courseId
       (status === "ALL" || r.status === status)
       && (!q || [r.name, r.email, r.username, r.phone, r.userId].some((v) => v?.toLowerCase().includes(q))));
   }, [rows, query, status]);
+
+  const saveAccess = async (row: CourseEnrollmentRow, date: string | null) => {
+    setSavingAccess(true);
+    try {
+      const res = await courseEnrollmentsAPI.setAccess(row.enrollmentId, date);
+      const expiresAt = res.data.data.expiresAt;
+      setRows((prev) => (prev || []).map((r) => (r.enrollmentId === row.enrollmentId
+        ? { ...r, expiresAt, accessExpired: expiresAt ? new Date(expiresAt) <= new Date() : false }
+        : r)));
+      setEditing(null);
+      toast.success(date ? `Access for ${row.name || "learner"} now ends on ${formatDate(expiresAt)}.` : `${row.name || "Learner"} now has lifetime access.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not update access."));
+    } finally {
+      setSavingAccess(false);
+    }
+  };
 
   const exportCsv = async () => {
     setExporting(true);
@@ -97,12 +119,13 @@ export default function CourseLearnersAdmin({ courseId, courseSlug }: { courseId
                       <th>Enrolled</th>
                       <th>Progress</th>
                       <th>Status</th>
+                      <th>Access until</th>
                       <th>Last active</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visible.length === 0 ? (
-                      <tr><td colSpan={8} style={{ textAlign: "center", color: "var(--gray-500)" }}>No learners match.</td></tr>
+                      <tr><td colSpan={9}style={{ textAlign: "center", color: "var(--gray-500)" }}>No learners match.</td></tr>
                     ) : (
                       visible.map((r, i) => (
                         <tr key={r.enrollmentId}>
@@ -125,7 +148,33 @@ export default function CourseLearnersAdmin({ courseId, courseSlug }: { courseId
                               {Math.round(r.progressPercent)}%
                             </div>
                           </td>
-                          <td><span className={`badge ${STATUS_BADGE[r.status] || "badge-gray"}`} style={{ fontSize: 11 }}>{r.status.toLowerCase()}</span></td>
+                          <td>
+                            {r.accessExpired && r.status !== "REFUNDED"
+                              ? <span className="badge badge-warning" style={{ fontSize: 11 }}>expired</span>
+                              : <span className={`badge ${STATUS_BADGE[r.status] || "badge-gray"}`} style={{ fontSize: 11 }}>{r.status.toLowerCase()}</span>}
+                          </td>
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            {editing === r.enrollmentId ? (
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                <input type="date" className="form-control" style={{ width: 150, padding: "4px 8px" }} value={editDate} onChange={(e) => setEditDate(e.target.value)} aria-label="Access end date" />
+                                <button className="btn btn-primary btn-sm" disabled={savingAccess || !editDate} onClick={() => saveAccess(r, editDate)}>Save</button>
+                                <button className="btn btn-secondary btn-sm" disabled={savingAccess} onClick={() => saveAccess(r, null)} title="Never expires">Lifetime</button>
+                                <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setEditing(null)} aria-label="Cancel"><X size={13} /></button>
+                              </div>
+                            ) : (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ color: r.accessExpired ? "var(--danger)" : undefined }}>{r.expiresAt ? formatDate(r.expiresAt) : "Lifetime"}</span>
+                                <button
+                                  className="btn btn-ghost btn-icon btn-sm"
+                                  onClick={() => { setEditing(r.enrollmentId); setEditDate(r.expiresAt ? istDate(r.expiresAt) : ""); }}
+                                  title="Change access end date"
+                                  aria-label={`Change access end date for ${r.name}`}
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                              </span>
+                            )}
+                          </td>
                           <td style={{ whiteSpace: "nowrap" }}>{formatDate(r.lastAccessedAt)}</td>
                         </tr>
                       ))

@@ -486,11 +486,15 @@ export interface CourseEnrollmentRow {
   enrollmentId: string; userId: string; name: string; email: string | null; username: string | null;
   phone: string | null; avatar: string | null; isActive: boolean; status: string; progressPercent: number;
   enrolledAt: string; completedAt: string | null; lastAccessedAt: string | null;
+  expiresAt: string | null; accessExpired: boolean;
 }
 export const courseEnrollmentsAPI = {
   list: (courseId: string, search?: string) =>
     api.get<{ data: CourseEnrollmentRow[] }>(`/courses/admin/${courseId}/enrollments`, { params: search ? { search } : undefined }),
   exportCsv: (courseId: string) => api.get(`/courses/admin/${courseId}/enrollments`, { params: { format: "csv" }, responseType: "blob" }),
+  // expiresAt "YYYY-MM-DD" (access ends that day) or null for lifetime
+  setAccess: (enrollmentId: string, expiresAt: string | null) =>
+    api.put<{ data: { id: string; expiresAt: string | null } }>(`/courses/admin/enrollments/${enrollmentId}/access`, { expiresAt }),
 };
 
 // ==================== COURSE SHEETS ====================

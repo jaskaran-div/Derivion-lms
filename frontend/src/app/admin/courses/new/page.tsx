@@ -21,7 +21,10 @@ const schema = z.object({
   level: z.string().min(1, "Select a level"),
   language: z.string().min(1, "Language required"),
   isFree: z.boolean().optional(),
-});
+  // "lifetime", a number of months, or "date" (fixed end date)
+  accessMode: z.string(),
+  accessEndDate: z.string().optional(),
+}).refine((d) => d.accessMode !== "date" || Boolean(d.accessEndDate), { message: "Pick the date access ends", path: ["accessEndDate"] });
 
 type FormData = z.infer<typeof schema>;
 
@@ -44,9 +47,9 @@ export default function NewCoursePage() {
   const [objectives, setObjectives] = useState<string[]>([""]);
   const [isFreeChecked, setIsFreeChecked] = useState(false);
 
-  const { register, handleSubmit, formState: { errors }, setValue } = useForm<FormData>({
+  const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { level: "Beginner", language: "English", price: "0", emiEnabled: false },
+    defaultValues: { level: "Beginner", language: "English", price: "0", emiEnabled: false, accessMode: "lifetime", accessEndDate: "" },
   });
 
   useEffect(() => {
@@ -76,8 +79,12 @@ export default function NewCoursePage() {
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
+      const { accessMode, accessEndDate, ...rest } = data;
       const payload = {
-        ...data,
+        ...rest,
+        ...(accessMode === "date"
+          ? { accessEndDate }
+          : { accessMonths: accessMode === "lifetime" ? null : Number(accessMode) }),
         price: parseFloat(data.price),
         discountPrice: data.discountPrice ? parseFloat(data.discountPrice) : undefined,
         isFree: isFreeChecked,
@@ -456,6 +463,29 @@ export default function NewCoursePage() {
                     </div>
                   </>
                 )}
+
+                <div className="form-group" style={{ marginTop: 16, marginBottom: 0 }}>
+                  <label className="form-label">Access duration</label>
+                  <select {...register("accessMode")} className="form-control">
+                    <option value="lifetime">Lifetime access</option>
+                    <option value="1">1 month</option>
+                    <option value="3">3 months</option>
+                    <option value="6">6 months</option>
+                    <option value="12">12 months</option>
+                    <option value="date">Until a fixed date…</option>
+                  </select>
+                  {watch("accessMode") === "date" && (
+                    <input
+                      {...register("accessEndDate")}
+                      className={`form-control ${errors.accessEndDate ? "error" : ""}`}
+                      type="date"
+                      style={{ marginTop: 8 }}
+                      aria-label="Access end date"
+                    />
+                  )}
+                  {errors.accessEndDate && <div className="form-error">{errors.accessEndDate.message}</div>}
+                  <div className="form-hint">How long a learner can open the course after they buy or are enrolled.</div>
+                </div>
               </div>
             </div>
 

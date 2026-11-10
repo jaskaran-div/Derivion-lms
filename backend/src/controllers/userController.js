@@ -1,4 +1,5 @@
 const prisma = require('../config/database');
+const { hasAccess, accessExpiryForCourse } = require('../services/progress');
 const lifecycle = require('../services/lifecycle');
 const { logAudit } = require('./auditController');
 const { notifyEnrollment } = require('../services/notify');
@@ -185,10 +186,14 @@ const enrollUser = async (req, res) => {
     const existing = await prisma.enrollment.findUnique({
       where: { userId_courseId: { userId, courseId } },
     });
-    if (existing) return res.status(409).json({ success: false, message: 'User already enrolled.' });
+    if (hasAccess(existing)) return res.status(409).json({ success: false, message: 'User already enrolled.' });
 
-    const enrollment = await prisma.enrollment.create({ data: { userId, courseId } });
-    await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
+    // A new enrollment, or a fresh access period for an expired / refunded one
+    const expiresAt = await accessExpiryForCourse(courseId);
+    const enrollment = existing
+      ? await prisma.enrollment.update({ where: { id: existing.id }, data: { status: existing.status === 'REFUNDED' ? 'ACTIVE' : existing.status, expiresAt } })
+      : await prisma.enrollment.create({ data: { userId, courseId, expiresAt } });
+    if (!existing) await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
     await lifecycle.afterEnrollmentCreated({ userId, courseId, source: 'admin' });
     notifyEnrollment(userId, courseId).catch(() => {});
 

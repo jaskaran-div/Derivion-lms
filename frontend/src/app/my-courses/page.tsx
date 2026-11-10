@@ -13,6 +13,7 @@ interface Enrollment {
   progressPercent: number;
   enrolledAt: string;
   completedAt?: string;
+  expiresAt?: string | null; // access end; null = lifetime
   course: {
     id: string;
     title: string;
@@ -170,6 +171,7 @@ export default function MyCoursesPage() {
             {filtered.map((enrollment) => {
               const progress = Math.round(parseFloat(String(enrollment.progressPercent)) || 0);
               const completed = enrollment.status === "COMPLETED";
+              const expired = Boolean(enrollment.expiresAt) && new Date(enrollment.expiresAt as string) <= new Date();
               return (
                 <Link href={`/courses/${enrollment.course.slug}`} key={enrollment.id}>
                   <div className="my-course-card">
@@ -177,7 +179,9 @@ export default function MyCoursesPage() {
                       {enrollment.course.category?.name && (
                         <span className="badge badge-success">{enrollment.course.category.name}</span>
                       )}
-                      {completed ? (
+                      {expired ? (
+                        <span className="badge badge-danger">Access expired</span>
+                      ) : completed ? (
                         <span className="badge badge-violet"><CheckCircle size={12} /> Completed</span>
                       ) : progress === 0 ? (
                         <span className="badge badge-warning">New</span>

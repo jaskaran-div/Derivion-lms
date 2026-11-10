@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/database');
+const { accessExpiryForCourse } = require('../services/progress');
 const lifecycle = require('../services/lifecycle');
 const { generateUsername, generatePassword, studentEmail } = require('../utils/credentials');
 const { teacherSchoolId } = require('../services/learners');
@@ -231,7 +232,7 @@ const importStudents = async (req, res) => {
         const enrolledCourses = [];
         for (const courseId of allCourseIds) {
           try {
-            await prisma.enrollment.create({ data: { userId: student.id, courseId } });
+            await prisma.enrollment.create({ data: { userId: student.id, courseId, expiresAt: await accessExpiryForCourse(courseId) } });
             await prisma.course.update({
               where: { id: courseId },
               data: { totalStudents: { increment: 1 } },

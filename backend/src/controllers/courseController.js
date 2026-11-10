@@ -5,7 +5,43 @@ const { uploadToS3, generateS3Key, getCloudFrontUrl, getPublicMediaUrl, deleteFr
 const { sendCSV, isoDate } = require('../utils/csv');
 const { isPlaceholderEmail } = require('../utils/credentials');
 
-const SORTABLE =['createdAt', 'title', 'price', 'totalStudents', 'updatedAt'];
+const { hasAccess } = require('../services/progress');
+
+// "YYYY-MM-DD" -> the end of that day, India time (null when invalid)
+const endOfDayIST = (raw) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw))) return null;
+  const end = new Date(`${raw}T23:59:59.999+05:30`);
+  return Number.isNaN(end.getTime()) ? null : end;
+};
+
+// Course access duration from the form: accessMonths (1-120, or null for lifetime) or a fixed
+// accessEndDate ("YYYY-MM-DD", access ends at the end of that day). Returns { data } or { error }.
+const parseAccessDuration = (body) => {
+  const data = {};
+  if (body.accessMonths !== undefined) {
+    if (body.accessMonths === null || body.accessMonths === '' || Number(body.accessMonths) === 0) data.accessMonths = null;
+    else {
+      const m = parseInt(body.accessMonths, 10);
+      if (!Number.isInteger(m) || m < 1 || m > 120) return { error: 'Access duration must be between 1 and 120 months.' };
+      data.accessMonths = m;
+    }
+  }
+  if (body.accessEndDate !== undefined) {
+    if (body.accessEndDate === null || body.accessEndDate === '') data.accessEndDate = null;
+    else {
+      const end = endOfDayIST(body.accessEndDate);
+      if (!end) return { error: 'Pick a valid access end date.' };
+      if (end <= new Date()) return { error: 'The access end date must be in the future.' };
+      data.accessEndDate = end;
+    }
+  }
+  // One rule at a time: a fixed end date replaces a number of months and vice versa
+  if (data.accessEndDate) data.accessMonths = null;
+  else if (data.accessMonths) data.accessEndDate = null;
+  return { data };
+};
+
+const SORTABLE = ['createdAt', 'title', 'price', 'totalStudents', 'updatedAt'];
 const CATALOG_TTL = 120;
 
 // GET /api/courses - Public listing with search & filter (cached per query)
@@ -104,6 +140,8 @@ const getCourseBySlug = async (req, res) => {
     }
 
     let isEnrolled = false;
+    let accessExpiresAt = null;
+    let accessExpired = false;
     let isBookmarked = false;
     let completedContentIds = new Set();
     if (req.user) {
@@ -117,7 +155,10 @@ const getCourseBySlug = async (req, res) => {
           select: { contentId: true },
         }),
       ]);
-      isEnrolled = Boolean(enrollment) && ['ACTIVE', 'COMPLETED'].includes(enrollment.status);
+      isEnrolled = hasAccess(enrollment);
+      accessExpiresAt = enrollment?.expiresAt || null;
+      // Bought before, but the access period is over: the page offers to buy again
+      accessExpired = Boolean(enrollment) && enrollment.status !== 'REFUNDED' && !isEnrolled;
       isBookmarked = Boolean(bookmark);
       completedContentIds = new Set(progresses.map((p) => p.contentId));
     }
@@ -131,6 +172,8 @@ const getCourseBySlug = async (req, res) => {
           contents: section.contents.map((c) => ({ ...c, isCompleted: completedContentIds.has(c.id) })),
         })),
         isEnrolled,
+        accessExpiresAt,
+        accessExpired,
         isBookmarked,
       },
     });
@@ -151,6 +194,8 @@ const createCourse = async (req, res) => {
     if (emiEnabled !== undefined && typeof emiEnabled !== 'boolean') {
       return res.status(400).json({ success: false, message: 'EMI eligibility must be a Boolean.' });
     }
+    const access = parseAccessDuration(req.body);
+    if (access.error) return res.status(400).json({ success: false, message: access.error });
 
     const slug = title
       .toLowerCase()
@@ -171,6 +216,7 @@ const createCourse = async (req, res) => {
         tags: tags || [],
         requirements: requirements || [],
         objectives: objectives || [],
+        ...access.data,
       },
     });
 
@@ -234,6 +280,10 @@ const updateCourse = async (req, res) => {
       if (!Number.isInteger(t) || t < 1 || t > 100) return res.status(400).json({ success: false, message: 'Completion threshold must be between 1 and 100.' });
       data.completionThreshold = t;
     }
+
+    const access = parseAccessDuration(body);
+    if (access.error) return res.status(400).json({ success: false, message: access.error });
+    Object.assign(data, access.data);
 
     const price = data.price ?? undefined;
     if (data.discountPrice != null && price !== undefined && data.discountPrice > price) {
@@ -481,7 +531,7 @@ const adminGetCourseEnrollments = async (req, res) => {
       orderBy: { enrolledAt: 'desc' },
       take: 5000,
       select: {
-        id: true, status: true, enrolledAt: true, completedAt: true, progressPercent: true, lastAccessedAt: true,
+        id: true, status: true, enrolledAt: true, completedAt: true, progressPercent: true, lastAccessedAt: true, expiresAt: true,
         user: { select: { id: true, firstName: true, lastName: true, email: true, username: true, phone: true, avatar: true, isActive: true } },
       },
     });
@@ -500,13 +550,15 @@ const adminGetCourseEnrollments = async (req, res) => {
       enrolledAt: e.enrolledAt,
       completedAt: e.completedAt,
       lastAccessedAt: e.lastAccessedAt,
+      expiresAt: e.expiresAt,
+      accessExpired: Boolean(e.expiresAt) && new Date(e.expiresAt) <= new Date(),
     }));
 
     if (req.query.format === 'csv') {
       return sendCSV(res, `${course.slug}-learners.csv`,
-        ['Name', 'Email', 'Username', 'Phone', 'Learner ID', 'Status', 'Progress %', 'Enrolled on', 'Completed on', 'Last active'],
-        rows.map((r) => [r.name, r.email || '', r.username || '', r.phone || '', r.userId, r.status, r.progressPercent,
-          isoDate(r.enrolledAt), isoDate(r.completedAt), isoDate(r.lastAccessedAt)]));
+        ['Name', 'Email', 'Username', 'Phone', 'Learner ID', 'Status', 'Progress %', 'Enrolled on', 'Access until', 'Completed on', 'Last active'],
+        rows.map((r) => [r.name, r.email || '', r.username || '', r.phone || '', r.userId, r.accessExpired ? 'EXPIRED' : r.status, r.progressPercent,
+          isoDate(r.enrolledAt), r.expiresAt ? isoDate(r.expiresAt) : 'Lifetime', isoDate(r.completedAt), isoDate(r.lastAccessedAt)]));
     }
     res.json({ success: true, data: rows });
   } catch (error) {
@@ -515,9 +567,32 @@ const adminGetCourseEnrollments = async (req, res) => {
   }
 };
 
+// PUT /api/courses/admin/enrollments/:enrollmentId/access  { expiresAt: "YYYY-MM-DD" | null }
+// Admin sets one learner's access end date (null = lifetime), e.g. to extend or end access
+const adminSetEnrollmentAccess = async (req, res) => {
+  try {
+    const raw = req.body?.expiresAt;
+    let expiresAt = null;
+    if (raw !== null && raw !== undefined && raw !== '') {
+      expiresAt = endOfDayIST(raw);
+      if (!expiresAt) return res.status(400).json({ success: false, message: 'Pick a valid date.' });
+    }
+    const enrollment = await prisma.enrollment.update({
+      where: { id: req.params.enrollmentId },
+      data: { expiresAt },
+      select: { id: true, expiresAt: true },
+    });
+    res.json({ success: true, data: enrollment });
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ success: false, message: 'Enrollment not found.' });
+    console.error('Set enrollment access error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update access.' });
+  }
+};
+
 module.exports = {
   getCourses, getCourseBySlug, createCourse, updateCourse, deleteCourse,
   uploadThumbnail, uploadPreviewVideo, togglePublish, adminGetCourses, adminGetCourse,
   initPreviewMultipart, completePreviewMultipart, abortPreviewMultipart,
-  adminGetCourseEnrollments,
+  adminGetCourseEnrollments, adminSetEnrollmentAccess,
 };

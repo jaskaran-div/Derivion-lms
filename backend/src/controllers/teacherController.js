@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/database');
+const { hasAccess, accessExpiryForCourse } = require('../services/progress');
 const { generateUsername, generatePassword, studentEmail } = require('../utils/credentials');
 const { teacherSchoolId, linkLearnerToSchool } = require('../services/learners');
 const lifecycle = require('../services/lifecycle');
@@ -190,7 +191,7 @@ const createStudent = async (req, res) => {
       for (const courseId of courseIds) {
         if (!(await canUseCourse(req.user.id, courseId))) continue;
         try {
-          await prisma.enrollment.create({ data: { userId: student.id, courseId } });
+          await prisma.enrollment.create({ data: { userId: student.id, courseId, expiresAt: await accessExpiryForCourse(courseId) } });
           await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
           enrolled.push(courseId);
           await lifecycle.afterEnrollmentCreated({ userId: student.id, courseId, source: 'teacher' });
@@ -265,9 +266,12 @@ const enrollStudent = async (req, res) => {
     const existing = await prisma.enrollment.findUnique({
       where: { userId_courseId: { userId: student.id, courseId } },
     });
-    if (existing) return res.status(409).json({ success: false, message: 'Student already enrolled.' });
-    const enrollment = await prisma.enrollment.create({ data: { userId: student.id, courseId } });
-    await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
+    if (hasAccess(existing)) return res.status(409).json({ success: false, message: 'Student already enrolled.' });
+    const expiresAt = await accessExpiryForCourse(courseId);
+    const enrollment = existing
+      ? await prisma.enrollment.update({ where: { id: existing.id }, data: { status: existing.status === 'REFUNDED' ? 'ACTIVE' : existing.status, expiresAt } })
+      : await prisma.enrollment.create({ data: { userId: student.id, courseId, expiresAt } });
+    if (!existing) await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
     await lifecycle.afterEnrollmentCreated({ userId: student.id, courseId, source: 'teacher' });
     notifyEnrollment(student.id, courseId).catch(() => {});
     res.status(201).json({ success: true, message: 'Student enrolled.', data: enrollment });

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { Bookmark, CheckCircle2, ChevronRight, Clock, Globe, Play, Users } from "lucide-react";
+import { Bookmark, CalendarClock, CheckCircle2, ChevronRight, Clock, Globe, Play, Users } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import CustomVideoPlayer from "@/components/player/CustomVideoPlayer";
 import LearnerContentProtection from "@/components/content/LearnerContentProtection";
@@ -21,6 +21,15 @@ import { useAuthStore } from "@/store/authStore";
 
 // How often watch position is reported to the server while a video plays
 const PROGRESS_INTERVAL_SECONDS = 30;
+
+const formatAccessDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
+
+// What a purchase includes, from the course's access duration
+const accessLabel = (c: Course) =>
+  c.accessEndDate ? `access until ${formatAccessDate(c.accessEndDate)}`
+    : c.accessMonths ? `${c.accessMonths} month${c.accessMonths === 1 ? "" : "s"} of access`
+      : "lifetime access";
 
 export default function CourseDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -240,6 +249,16 @@ export default function CourseDetailPage() {
                 <Globe size={16} color="var(--gray-500)" aria-hidden="true" />
                 <strong>{course.language || "English"}</strong>
               </div>
+              {course.isEnrolled && user?.role !== "ADMIN" && (
+                <div className="player-meta-item">
+                  <CalendarClock size={16} color="var(--gray-500)" aria-hidden="true" />
+                  {course.accessExpiresAt ? (
+                    <><span>Access until</span><strong>{formatAccessDate(course.accessExpiresAt)}</strong></>
+                  ) : (
+                    <strong>Lifetime access</strong>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -368,14 +387,18 @@ export default function CourseDetailPage() {
                 <div className="hero-course-card" style={{ marginBottom: 16, gap: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: "var(--gray-800)" }}>
-                      {course.isFree ? "Free course" : "Unlock full access"}
+                      {course.accessExpired ? "Your access has expired" : course.isFree ? "Free course" : "Unlock full access"}
                     </span>
                     <span style={{ fontSize: 24, fontWeight: 600, color: "var(--gray-900)" }}>
                       {course.isFree || effectivePrice === 0 ? "Free" : `₹${effectivePrice.toLocaleString("en-IN")}`}
                     </span>
                   </div>
+                  {course.accessExpired && course.accessExpiresAt && (
+                    <div style={{ fontSize: 13, color: "var(--danger)" }}>Your access ended on {formatAccessDate(course.accessExpiresAt)}. Renew to continue learning.</div>
+                  )}
+                  <div style={{ fontSize: 13, color: "var(--gray-500)" }}>Includes {accessLabel(course)}</div>
                   <button className="btn btn-dark w-full" disabled={paying} onClick={isAuthenticated ? enroll : goToLogin}>
-                    {paying ? "Processing…" : !isAuthenticated ? "Log in to enroll" : course.isFree ? "Enroll for free" : "Enroll now"}
+                    {paying ? "Processing…" : !isAuthenticated ? "Log in to enroll" : course.accessExpired ? "Renew access" : course.isFree ? "Enroll for free" : "Enroll now"}
                   </button>
                 </div>
               )}

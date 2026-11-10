@@ -26,7 +26,7 @@ const {
 } = require('../controllers/chatController');
 const { createOrder, verifyPayment, webhook, getPaymentHistory, adminGetPayments, adminRefundPayment } = require('../controllers/paymentController');
 const { getSettings, updateSettings, getPublicSettings } = require('../services/settings');
-const { ACCESS_STATUSES } = require('../services/progress');
+const { accessFilter } = require('../services/progress');
 const cache = require('../config/cache');
 const { listEmails, retryEmail, listOutbox, retryOutbox } = require('../controllers/emailAdminController');
 const integration = require('../controllers/integrationController');
@@ -400,7 +400,7 @@ router.post('/profile/avatar', ...studentAuth, imageUpload.single('avatar'), asy
 const canUseCourseForum = async (user, courseId) => {
   if (user.role === 'ADMIN' || user.role === 'TEACHER') return true;
   const enrollment = await prisma.enrollment.findFirst({
-    where: { userId: user.id, courseId, status: { in: ACCESS_STATUSES } },
+    where: { userId: user.id, courseId, ...accessFilter() },
     select: { id: true },
   });
   return Boolean(enrollment);
@@ -562,7 +562,7 @@ router.post('/student/notes', ...studentAuth, async (req, res) => {
     const content = await prisma.content.findUnique({ where: { id: contentId }, select: { section: { select: { courseId: true } } } });
     if (!content) return res.status(404).json({ success: false, message: 'Lesson not found.' });
     const enrolled = req.user.role === 'ADMIN' || await prisma.enrollment.findFirst({
-      where: { userId: req.user.id, courseId: content.section.courseId, status: { in: ACCESS_STATUSES } },
+      where: { userId: req.user.id, courseId: content.section.courseId, ...accessFilter() },
       select: { id: true },
     });
     if (!enrolled) return res.status(403).json({ success: false, message: 'Enroll in this course to take notes.' });

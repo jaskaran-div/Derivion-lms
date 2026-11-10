@@ -40,6 +40,11 @@ export interface Course {
   sections: Section[];
   isEnrolled: boolean;
   isBookmarked?: boolean;
+  // Course access duration (null = lifetime) and this learner's access end
+  accessMonths?: number | null;
+  accessEndDate?: string | null;
+  accessExpiresAt?: string | null;
+  accessExpired?: boolean;
   updatedAt?: string;
 }
 

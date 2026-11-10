@@ -1,6 +1,7 @@
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const prisma = require('../config/database');
+const { hasAccess, accessExpiryFor, accessExpiryForCourse } = require('../services/progress');
 const { sendEmail, emailTemplates } = require('../config/email');
 const { getCheckoutConfigurationId } = require('../utils/razorpayConfig');
 const { getSettings } = require('../services/settings');
@@ -37,12 +38,16 @@ const createOrder = async (req, res) => {
     const existingEnrollment = await prisma.enrollment.findUnique({
       where: { userId_courseId: { userId, courseId } },
     });
-    if (existingEnrollment && existingEnrollment.status !== 'REFUNDED') {
+    // Expired or refunded learners may buy again (renewal); anyone with access now may not
+    if (hasAccess(existingEnrollment)) {
       return res.status(409).json({ success: false, message: 'Already enrolled in this course.' });
+    }
+    if (course.accessEndDate && new Date(course.accessEndDate) <= new Date()) {
+      return res.status(400).json({ success: false, message: 'Enrollment for this course has closed.' });
     }
 
     const { enrollment: enrollmentRules } = await getSettings();
-    if (enrollmentRules.maxEnrollmentsPerUser > 0) {
+    if (!existingEnrollment && enrollmentRules.maxEnrollmentsPerUser > 0) {
       const count = await prisma.enrollment.count({ where: { userId, status: { not: 'REFUNDED' } } });
       if (count >= enrollmentRules.maxEnrollmentsPerUser) {
         return res.status(403).json({ success: false, message: `You can be enrolled in at most ${enrollmentRules.maxEnrollmentsPerUser} courses.` });
@@ -51,10 +56,11 @@ const createOrder = async (req, res) => {
 
     // If free course, enroll directly
     if (course.isFree || parseFloat(course.price) === 0) {
+      const expiresAt = accessExpiryFor(course);
       const enrollment = existingEnrollment
-        ? await prisma.enrollment.update({ where: { id: existingEnrollment.id }, data: { status: 'ACTIVE' } })
-        : await prisma.enrollment.create({ data: { userId, courseId } });
-      await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
+        ? await prisma.enrollment.update({ where: { id: existingEnrollment.id }, data: { status: 'ACTIVE', expiresAt } })
+        : await prisma.enrollment.create({ data: { userId, courseId, expiresAt } });
+      if (!existingEnrollment) await prisma.course.update({ where: { id: courseId }, data: { totalStudents: { increment: 1 } } });
       // Free enrollment: no payment and no invoice; sync to Operations + onboarding link for eligible learners
       await lifecycle.afterEnrollmentCreated({ userId, courseId, source: 'free' });
       return res.json({ success: true, message: 'Enrolled successfully (free course).', data: { enrollment } });
@@ -185,10 +191,16 @@ const completePayment = async (payment, { razorpayPaymentId, razorpaySignature, 
     });
     const previous = enrollment ? { ...enrollment } : null;   // the enrollment as it was before this payment
     if (!enrollment) {
-      enrollment = await tx.enrollment.create({ data: { userId: payment.userId, courseId: payment.courseId } });
+      const expiresAt = await accessExpiryForCourse(payment.courseId, tx);
+      enrollment = await tx.enrollment.create({ data: { userId: payment.userId, courseId: payment.courseId, expiresAt } });
       await tx.course.update({ where: { id: payment.courseId }, data: { totalStudents: { increment: 1 } } });
-    } else if (enrollment.status === 'REFUNDED') {
-      enrollment = await tx.enrollment.update({ where: { id: enrollment.id }, data: { status: 'ACTIVE' } });
+    } else if (!hasAccess(enrollment)) {
+      // Refunded, or access expired: this payment starts a fresh access period
+      const expiresAt = await accessExpiryForCourse(payment.courseId, tx);
+      enrollment = await tx.enrollment.update({
+        where: { id: enrollment.id },
+        data: { status: enrollment.status === 'REFUNDED' ? 'ACTIVE' : enrollment.status, expiresAt },
+      });
     }
 
     const [user, course] = await Promise.all([

@@ -1,6 +1,6 @@
 const prisma = require('../config/database');
 const { extractText, parseQuestions } = require('../utils/quizImport');
-const { markLessonComplete, ACCESS_STATUSES } = require('../services/progress');
+const { markLessonComplete, accessFilter } = require('../services/progress');
 const { logActivity } = require('./auditController');
 
 // Answers arriving this long after the deadline are still accepted (network latency)
@@ -352,7 +352,7 @@ const resolveAccess = async (user, assessmentId, contentId) => {
     if (!content) return { status: 403, message: 'You are not enrolled in a course that contains this quiz.' };
   } else {
     const enrolled = await prisma.enrollment.findFirst({
-      where: { userId: user.id, courseId: content.section.course.id, status: { not: 'REFUNDED' } },
+      where: { userId: user.id, courseId: content.section.course.id, ...accessFilter() },
       select: { id: true },
     });
     if (!enrolled) return { status: 403, message: 'You are not enrolled in this course.' };
@@ -400,7 +400,7 @@ const finalizeAttempt = async (attempt, quiz, { autoSubmitted = false } = {}) =>
     const lessons = await prisma.content.findMany({
       where: {
         assessmentId: quiz.id,
-        section: { course: { enrollments: { some: { userId: attempt.userId, status: { in: ACCESS_STATUSES } } } } },
+        section: { course: { enrollments: { some: { userId: attempt.userId, ...accessFilter() } } } },
       },
       select: { id: true, section: { select: { courseId: true } } },
     });

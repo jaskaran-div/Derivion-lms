@@ -8,8 +8,42 @@ const { notifyUser } = require('./notify');
 // Enrollment states that grant access to course content
 const ACCESS_STATUSES = ['ACTIVE', 'COMPLETED'];
 
+// Enrollment filter for "can open the course right now": a granting status and access not yet expired
+const accessFilter = () => ({
+  status: { in: ACCESS_STATUSES },
+  OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+});
+
+const hasAccess = (enrollment) =>
+  Boolean(enrollment) && ACCESS_STATUSES.includes(enrollment.status)
+  && (!enrollment.expiresAt || new Date(enrollment.expiresAt) > new Date());
+
 const getActiveEnrollment = (userId, courseId) =>
-  prisma.enrollment.findFirst({ where: { userId, courseId, status: { in: ACCESS_STATUSES } } });
+  prisma.enrollment.findFirst({ where: { userId, courseId, ...accessFilter() } });
+
+// Adds calendar months, clamping to the month's last day (31 Jan + 1 month = 28/29 Feb)
+const addMonths = (from, months) => {
+  const d = new Date(from);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d;
+};
+
+// When a new enrollment's access ends, from the course's access duration (null = lifetime).
+// A fixed end date wins over a number of months.
+const accessExpiryFor = (course, from = new Date()) => {
+  if (!course) return null;
+  if (course.accessEndDate) return new Date(course.accessEndDate);
+  if (course.accessMonths > 0) return addMonths(from, course.accessMonths);
+  return null;
+};
+
+// Same, looking the course up (tx may be a transaction client)
+const accessExpiryForCourse = async (courseId, tx = prisma) =>
+  accessExpiryFor(await tx.course.findUnique({ where: { id: courseId }, select: { accessMonths: true, accessEndDate: true } }));
 
 // Only published lessons in published sections count towards progress
 const countableLessons = (courseId) => ({ isPublished: true, section: { courseId, isPublished: true } });
@@ -77,4 +111,4 @@ const markLessonComplete = async (userId, contentId, courseId) => {
   return recomputeCourseProgress(userId, courseId);
 };
 
-module.exports = { ACCESS_STATUSES, getActiveEnrollment, recomputeCourseProgress, markLessonComplete, issueCertificate };
+module.exports = { ACCESS_STATUSES, accessFilter, hasAccess, accessExpiryFor, accessExpiryForCourse, getActiveEnrollment, recomputeCourseProgress, markLessonComplete, issueCertificate };

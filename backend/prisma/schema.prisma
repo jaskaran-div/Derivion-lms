@@ -442,6 +442,9 @@ model Course {
   objectives    String[]
   categoryId    String
   completionThreshold Int    @default(80) // % of lessons needed to complete
+  // How long a learner keeps access after enrolling: null/0 = lifetime, or N months; a fixed end date wins
+  accessMonths  Int?
+  accessEndDate DateTime?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -518,6 +521,7 @@ model Enrollment {
   completedAt     DateTime?
   progressPercent Decimal          @default(0) @db.Decimal(5, 2)
   lastAccessedAt  DateTime?
+  expiresAt       DateTime?        // access ends here; null = lifetime
   updatedAt       DateTime         @updatedAt
   // Operations onboarding. Enrollments that predate the integration stay NOT_APPLICABLE; new purchases start ONBOARDING_PENDING.
   onboardingStatus      String     @default("NOT_APPLICABLE")
