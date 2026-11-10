@@ -2,7 +2,10 @@ const prisma = require('../config/database');
 const cache = require('../config/cache');
 const { uploadToS3, generateS3Key, getCloudFrontUrl, getPublicMediaUrl, deleteFromS3, isAwsConfigured, createMultipartUpload, getUploadPartUrl, completeMultipartUpload, abortMultipartUpload } = require('../config/aws');
 
-const SORTABLE = ['createdAt', 'title', 'price', 'totalStudents', 'updatedAt'];
+const { sendCSV, isoDate } = require('../utils/csv');
+const { isPlaceholderEmail } = require('../utils/credentials');
+
+const SORTABLE =['createdAt', 'title', 'price', 'totalStudents', 'updatedAt'];
 const CATALOG_TTL = 120;
 
 // GET /api/courses - Public listing with search & filter (cached per query)
@@ -453,8 +456,68 @@ const abortPreviewMultipart = async (req, res) => {
   }
 };
 
+// GET /api/courses/admin/:id/enrollments[?search=&format=csv]
+// Everyone enrolled in a course: name, login ID, contact, progress and status
+const adminGetCourseEnrollments = async (req, res) => {
+  try {
+    const course = await prisma.course.findUnique({ where: { id: req.params.id }, select: { id: true, slug: true } });
+    if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
+
+    const search = String(req.query.search || '').trim().slice(0, 100);
+    const userWhere = search
+      ? {
+        OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { username: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search } },
+        ],
+      }
+      : undefined;
+
+    const enrollments = await prisma.enrollment.findMany({
+      where: { courseId: course.id, ...(userWhere && { user: userWhere }) },
+      orderBy: { enrolledAt: 'desc' },
+      take: 5000,
+      select: {
+        id: true, status: true, enrolledAt: true, completedAt: true, progressPercent: true, lastAccessedAt: true,
+        user: { select: { id: true, firstName: true, lastName: true, email: true, username: true, phone: true, avatar: true, isActive: true } },
+      },
+    });
+
+    const rows = enrollments.map((e) => ({
+      enrollmentId: e.id,
+      userId: e.user.id,
+      name: `${e.user.firstName || ''} ${e.user.lastName || ''}`.trim(),
+      email: isPlaceholderEmail(e.user.email) ? null : e.user.email,
+      username: e.user.username,
+      phone: e.user.phone,
+      avatar: e.user.avatar,
+      isActive: e.user.isActive,
+      status: e.status,
+      progressPercent: Number(e.progressPercent),
+      enrolledAt: e.enrolledAt,
+      completedAt: e.completedAt,
+      lastAccessedAt: e.lastAccessedAt,
+    }));
+
+    if (req.query.format === 'csv') {
+      return sendCSV(res, `${course.slug}-learners.csv`,
+        ['Name', 'Email', 'Username', 'Phone', 'Learner ID', 'Status', 'Progress %', 'Enrolled on', 'Completed on', 'Last active'],
+        rows.map((r) => [r.name, r.email || '', r.username || '', r.phone || '', r.userId, r.status, r.progressPercent,
+          isoDate(r.enrolledAt), isoDate(r.completedAt), isoDate(r.lastAccessedAt)]));
+    }
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Course enrollments error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load enrolled learners.' });
+  }
+};
+
 module.exports = {
   getCourses, getCourseBySlug, createCourse, updateCourse, deleteCourse,
   uploadThumbnail, uploadPreviewVideo, togglePublish, adminGetCourses, adminGetCourse,
   initPreviewMultipart, completePreviewMultipart, abortPreviewMultipart,
+  adminGetCourseEnrollments,
 };

@@ -5,7 +5,7 @@ const { imageUpload, videoUpload, documentUpload, quizDocUpload, sheetTemplateUp
 const {
   getCourses, getCourseBySlug, createCourse, updateCourse, deleteCourse,
   uploadThumbnail, uploadPreviewVideo, togglePublish, adminGetCourses, adminGetCourse,
-  initPreviewMultipart, completePreviewMultipart, abortPreviewMultipart,
+  initPreviewMultipart, completePreviewMultipart, abortPreviewMultipart, adminGetCourseEnrollments,
 } = require('../controllers/courseController');
 const {
   createSection, updateSection, deleteSection, reorderSections,
@@ -82,6 +82,7 @@ router.delete('/admin/questions/:id', ...adminAuth, deleteQuestion);
 
 router.get('/admin/all', ...adminAuth, adminGetCourses);
 router.get('/admin/:id', ...adminAuth, adminGetCourse);
+router.get('/admin/:id/enrollments', ...adminAuth, adminGetCourseEnrollments);
 router.post('/admin', ...adminAuth, createCourse);
 router.put('/admin/:id', ...adminAuth, updateCourse);
 router.delete('/admin/:id', ...adminAuth, deleteCourse);

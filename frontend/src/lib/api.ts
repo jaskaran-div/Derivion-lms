@@ -481,6 +481,18 @@ export const activityAPI = {
   indicators: () => api.get<{ data: NavIndicators }>("/nav/indicators"),
 };
 
+// ==================== COURSE ENROLLMENTS (admin) ====================
+export interface CourseEnrollmentRow {
+  enrollmentId: string; userId: string; name: string; email: string | null; username: string | null;
+  phone: string | null; avatar: string | null; isActive: boolean; status: string; progressPercent: number;
+  enrolledAt: string; completedAt: string | null; lastAccessedAt: string | null;
+}
+export const courseEnrollmentsAPI = {
+  list: (courseId: string, search?: string) =>
+    api.get<{ data: CourseEnrollmentRow[] }>(`/courses/admin/${courseId}/enrollments`, { params: search ? { search } : undefined }),
+  exportCsv: (courseId: string) => api.get(`/courses/admin/${courseId}/enrollments`, { params: { format: "csv" }, responseType: "blob" }),
+};
+
 // ==================== COURSE SHEETS ====================
 // A sheet template on a course (e.g. a daily diary); each enrolled learner fills their own rows.
 export interface SheetColumn { key: string; label: string; type: "text" | "date" | "number" }
