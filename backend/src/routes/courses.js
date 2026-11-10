@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, authorize, optionalAuth } = require('../middleware/auth');
-const { imageUpload, videoUpload, documentUpload, quizDocUpload } = require('../middleware/upload');
+const { imageUpload, videoUpload, documentUpload, quizDocUpload, sheetTemplateUpload } = require('../middleware/upload');
 const {
   getCourses, getCourseBySlug, createCourse, updateCourse, deleteCourse,
   uploadThumbnail, uploadPreviewVideo, togglePublish, adminGetCourses, adminGetCourse,
@@ -19,6 +19,10 @@ const {
   previewImport, bulkAddQuestions, getQuizAnalytics,
   getAssessment, startAttempt, saveProgress, submitAttempt,
 } = require('../controllers/assessmentController');
+const {
+  adminListSheets, adminCreateSheet, adminUpdateSheet, adminDeleteSheet, adminGetSheet, adminGetLearnerRows, adminExportSheet,
+  learnerListSheets, learnerGetRows, learnerAddRow, learnerUpdateRow, learnerDeleteRow,
+} = require('../controllers/sheetController');
 const prisma = require('../config/database');
 const { renderCertificatePdf } = require('../services/certificatePdf');
 const { getPublicSettings } = require('../services/settings');
@@ -105,6 +109,21 @@ router.post('/admin/contents/:id/multipart/init', ...adminAuth, initContentMulti
 router.post('/admin/contents/:id/multipart/complete', ...adminAuth, completeContentMultipart);
 router.post('/admin/contents/:id/multipart/abort', ...adminAuth, abortContentMultipart);
 
+// Course sheets (template uploaded by admin, each learner fills their own rows)
+const sheetTemplate = (req, res, next) => {
+  sheetTemplateUpload.single('file')(req, res, (err) => {
+    if (err) return res.status(400).json({ success: false, message: err.message });
+    next();
+  });
+};
+router.get('/admin/:courseId/sheets', ...adminAuth, adminListSheets);
+router.post('/admin/:courseId/sheets', ...adminAuth, sheetTemplate, adminCreateSheet);
+router.get('/admin/sheets/:id', ...adminAuth, adminGetSheet);
+router.put('/admin/sheets/:id', ...adminAuth, sheetTemplate, adminUpdateSheet);
+router.delete('/admin/sheets/:id', ...adminAuth, adminDeleteSheet);
+router.get('/admin/sheets/:id/learners/:userId', ...adminAuth, adminGetLearnerRows);
+router.get('/admin/sheets/:id/export', ...adminAuth, adminExportSheet);
+
 // Categories
 router.get('/categories/all', async (req, res) => {
   try {
@@ -187,6 +206,13 @@ const studentAuth = [authenticate, authorize('STUDENT', 'ADMIN')];
 
 router.get('/student/content/:id', ...studentAuth, getContentForStudent);
 router.post('/student/content/:id/progress', ...studentAuth, updateProgress);
+
+// Course sheets (student): each learner only ever sees and edits their own rows
+router.get('/student/courses/:courseId/sheets', ...studentAuth, learnerListSheets);
+router.get('/student/sheets/:id/rows', ...studentAuth, learnerGetRows);
+router.post('/student/sheets/:id/rows', ...studentAuth, learnerAddRow);
+router.put('/student/sheets/:id/rows/:rowId', ...studentAuth, learnerUpdateRow);
+router.delete('/student/sheets/:id/rows/:rowId', ...studentAuth, learnerDeleteRow);
 
 // Assessments (student)
 router.get('/student/assessments/:id', ...studentAuth, getAssessment);

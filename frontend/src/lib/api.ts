@@ -481,6 +481,53 @@ export const activityAPI = {
   indicators: () => api.get<{ data: NavIndicators }>("/nav/indicators"),
 };
 
+// ==================== COURSE SHEETS ====================
+// A sheet template on a course (e.g. a daily diary); each enrolled learner fills their own rows.
+export interface SheetColumn { key: string; label: string; type: "text" | "date" | "number" }
+export interface CourseSheet {
+  id: string; courseId: string; title: string; description?: string | null;
+  columns: SheetColumn[]; order: number; isPublished: boolean; createdAt: string; updatedAt: string;
+  rowCount?: number; learnerCount?: number; myRowCount?: number;
+}
+export interface SheetRow { id: string; data: Record<string, string>; createdAt: string; updatedAt: string }
+export interface SheetLearner {
+  id: string; name: string; login: string; avatar?: string | null;
+  enrollmentStatus: string | null; rowCount: number; lastEntryAt: string | null;
+}
+
+// Multipart body: an optional template file plus plain fields
+const sheetForm = (fields: Record<string, string | boolean | undefined>, file?: File | null) => {
+  const form = new FormData();
+  if (file) form.append("file", file);
+  Object.entries(fields).forEach(([k, v]) => v !== undefined && form.append(k, String(v)));
+  return form;
+};
+const multipart = { headers: { "Content-Type": "multipart/form-data" } };
+
+export const sheetsAPI = {
+  // Admin
+  list: (courseId: string) => api.get<{ data: CourseSheet[] }>(`/courses/admin/${courseId}/sheets`),
+  create: (courseId: string, fields: { title?: string; description?: string; columns?: string }, file?: File | null) =>
+    api.post(`/courses/admin/${courseId}/sheets`, sheetForm(fields, file), multipart),
+  update: (id: string, fields: { title?: string; description?: string; isPublished?: boolean; columns?: string }, file?: File | null) =>
+    api.put(`/courses/admin/sheets/${id}`, sheetForm(fields, file), multipart),
+  remove: (id: string) => api.delete(`/courses/admin/sheets/${id}`),
+  get: (id: string) =>
+    api.get<{ data: { sheet: CourseSheet & { course: { id: string; title: string } }; learners: SheetLearner[] } }>(`/courses/admin/sheets/${id}`),
+  learnerRows: (id: string, userId: string) => api.get<{ data: SheetRow[] }>(`/courses/admin/sheets/${id}/learners/${userId}`),
+  export: (id: string, userId?: string) =>
+    api.get(`/courses/admin/sheets/${id}/export`, { params: userId ? { userId } : undefined, responseType: "blob" }),
+  // Learner
+  mine: (courseId: string) => api.get<{ data: CourseSheet[] }>(`/courses/student/courses/${courseId}/sheets`),
+  myRows: (id: string) => api.get<{ data: { sheet: CourseSheet; rows: SheetRow[] } }>(`/courses/student/sheets/${id}/rows`),
+  addRow: (id: string, data: Record<string, string>) => api.post<{ data: SheetRow }>(`/courses/student/sheets/${id}/rows`, { data }),
+  updateRow: (id: string, rowId: string, data: Record<string, string>) =>
+    api.put<{ data: SheetRow }>(`/courses/student/sheets/${id}/rows/${rowId}`, { data }),
+  deleteRow: (id: string, rowId: string) => api.delete(`/courses/student/sheets/${id}/rows/${rowId}`),
+};
+
+export const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 // Saves a blob response (CSV exports) as a file
 export const downloadBlob = (data: BlobPart, filename: string, type = "text/csv") => {
   const url = URL.createObjectURL(new Blob([data], { type }));

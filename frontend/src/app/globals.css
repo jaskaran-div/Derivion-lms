@@ -2609,3 +2609,81 @@ tbody tr:hover td {
 @media (max-width: 900px) {
   .course-edit-grid { grid-template-columns: 1fr; }
 }
+
+/* ========================
+   COURSE SHEETS — learner diary + admin learner tabs
+======================== */
+.sheet-viewer {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.sheet-scroll { max-height: min(70vh, 680px); overflow: auto; -webkit-overflow-scrolling: touch; }
+.sheet-table { width: 100%; border-collapse: collapse; background: var(--bg-card); }
+.sheet-table th,
+.sheet-table td {
+  padding: 9px 12px;
+  font-size: 13px;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 110px;
+  max-width: 420px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.sheet-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--gray-50);
+  color: var(--gray-700);
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-color);
+}
+.sheet-table td { color: var(--gray-800); }
+.sheet-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+.sheet-search input { border: 0; outline: 0; background: transparent; font-size: 13px; width: 100%; color: var(--gray-900); }
+.sheet-entry-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--gray-50);
+}
+.sheet-entry-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.sheet-admin-layout { display: grid; gap: 16px; grid-template-columns: 300px minmax(0, 1fr); align-items: start; }
+.sheet-learner-list { max-height: 70vh; overflow-y: auto; }
+.sheet-learner-tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--gray-100);
+  border-left: 3px solid transparent;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.sheet-learner-tab:hover { background: var(--gray-50); }
+.sheet-learner-tab.active { background: var(--primary-50); border-left-color: var(--primary); }
+.sheet-learner-name { display: block; font-size: 14px; font-weight: 500; color: var(--gray-900); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-learner-meta { display: block; font-size: 12px; color: var(--gray-500); }
+@media (max-width: 900px) {
+  .sheet-admin-layout { grid-template-columns: 1fr; }
+  .sheet-learner-list { max-height: 280px; }
+}

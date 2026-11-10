@@ -331,6 +331,7 @@ model User {
   mentorSessions       MentorSession[] @relation("MentorSessionCreator")
   bookmarks            CourseBookmark[]
   lessonNotes          LessonNote[]
+  sheetRows            SheetRow[]
 
   @@index([email])
   @@index([username])
@@ -455,6 +456,7 @@ model Course {
   classAssignments  ClassCourseAssignment[]
   mentorSessions    MentorSession[]
   bookmarks         CourseBookmark[]
+  sheets            CourseSheet[]
 
   @@index([status, categoryId])
   @@index([slug])
@@ -761,6 +763,43 @@ model LessonNote {
 
   @@index([userId, contentId])
   @@map("lesson_notes")
+}
+
+// ==================== COURSE SHEETS ====================
+// A sheet template on a course (e.g. a daily diary). Every enrolled learner fills their own rows.
+
+model CourseSheet {
+  id          String   @id @default(uuid())
+  courseId    String
+  title       String
+  description String?
+  columns     Json     // [{ key, label, type: "text" | "date" | "number" }], from the uploaded template's header row
+  order       Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course      Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  rows        SheetRow[]
+
+  @@index([courseId])
+  @@map("course_sheets")
+}
+
+model SheetRow {
+  id        String   @id @default(uuid())
+  sheetId   String
+  userId    String
+  data      Json     // { [column key]: value }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sheet     CourseSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sheetId, userId])
+  @@index([userId])
+  @@map("sheet_rows")
 }
 
 // ==================== MENTOR SESSIONS ====================

@@ -51,6 +51,17 @@ const quizDocUpload = multer({
   },
 });
 
+// For course sheet templates (.xlsx / .csv); only the header row is read
+const sheetTemplateUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const name = (file.originalname || '').toLowerCase();
+    if (name.endsWith('.xlsx') || name.endsWith('.csv')) cb(null, true);
+    else cb(new Error('Upload an Excel (.xlsx) or CSV (.csv) file.'), false);
+  },
+});
+
 // For image uploads (thumbnails, avatars)
 const imageUpload = multer({
   storage,
@@ -70,4 +81,4 @@ const generalUpload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
 
-module.exports = { videoUpload, documentUpload, imageUpload, generalUpload, quizDocUpload };
+module.exports = { videoUpload, documentUpload, imageUpload, generalUpload, quizDocUpload, sheetTemplateUpload };

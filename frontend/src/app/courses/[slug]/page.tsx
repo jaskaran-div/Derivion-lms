@@ -11,11 +11,12 @@ import CourseShareMenu from "@/components/courses/CourseShareMenu";
 import CourseContentList from "@/components/course/CourseContentList";
 import CourseNotes from "@/components/course/CourseNotes";
 import CourseOverview from "@/components/course/CourseOverview";
+import CourseSheets from "@/components/course/CourseSheets";
 import DocumentViewer from "@/components/course/DocumentViewer";
 import { useCourseCheckout } from "@/components/course/useCourseCheckout";
 import { formatDuration, formatRelativeTime } from "@/components/course/format";
 import type { Content, Course } from "@/components/course/types";
-import { apiErrorMessage, coursesAPI, learnerAPI } from "@/lib/api";
+import { apiErrorMessage, coursesAPI, learnerAPI, sheetsAPI, type CourseSheet } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 
 // How often watch position is reported to the server while a video plays
@@ -29,7 +30,9 @@ export default function CourseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [activeContent, setActiveContent] = useState<Content | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "notes">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "notes" | "sheets">("overview");
+  // Course sheets (e.g. a daily diary) the enrolled learner fills in
+  const [sheets, setSheets] = useState<CourseSheet[]>([]);
   const [bookmarked, setBookmarked] = useState(false);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [currentTime, setCurrentTime] = useState(0);
@@ -37,6 +40,19 @@ export default function CourseDetailPage() {
 
   const isStaff = user?.role === "ADMIN" || user?.role === "TEACHER";
   const canAccess = Boolean(course?.isEnrolled) || user?.role === "ADMIN";
+  const courseId = course?.id;
+  const canUseSheets = Boolean(courseId && isAuthenticated && canAccess && (user?.role === "STUDENT" || user?.role === "ADMIN"));
+
+  useEffect(() => {
+    if (!canUseSheets || !courseId) return;
+    let cancelled = false;
+    sheetsAPI.mine(courseId)
+      .then((res) => !cancelled && setSheets(res.data.data))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseSheets, courseId]);
 
   const loadCourse = useCallback(() => {
     return coursesAPI.getBySlug(slug)
@@ -330,10 +346,17 @@ export default function CourseDetailPage() {
                 <button role="tab" aria-selected={activeTab === "notes"} className={`player-tab-item ${activeTab === "notes" ? "active" : ""}`} onClick={() => setActiveTab("notes")}>
                   Notes
                 </button>
+                {sheets.length > 0 && (
+                  <button role="tab" aria-selected={activeTab === "sheets"} className={`player-tab-item ${activeTab === "sheets" ? "active" : ""}`} onClick={() => setActiveTab("sheets")}>
+                    {sheets.length === 1 ? sheets[0].title : "My Sheets"}
+                  </button>
+                )}
               </div>
 
               {activeTab === "overview" ? (
                 <CourseOverview course={course} totalLessons={totalLessons} totalDuration={totalDuration} />
+              ) : activeTab === "sheets" && sheets.length > 0 ? (
+                <CourseSheets sheets={sheets} />
               ) : (
                 <CourseNotes courseId={course.id} canAccess={canAccess && isAuthenticated} activeContent={activeContent} currentTime={currentTime} />
               )}

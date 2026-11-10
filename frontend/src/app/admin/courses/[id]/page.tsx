@@ -7,6 +7,7 @@ import { coursesAPI, quizAPI, apiErrorMessage } from "@/lib/api";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import CourseDetailsEditor, { type EditableCourse } from "@/components/course/CourseDetailsEditor";
+import CourseSheetsAdmin from "@/components/course/CourseSheetsAdmin";
 import {
   ArrowLeft, Plus, Trash2, Upload, ChevronDown, ChevronUp, FileText, Link2, HelpCircle, ToggleLeft, ToggleRight, GripVertical, Lock, Unlock, Film, Book, Pencil, Check, X, Eye, EyeOff, ExternalLink,
 } from "lucide-react";
@@ -605,6 +606,8 @@ export default function CourseEditPage() {
           )}
         </div>
       </div>
+
+      <CourseSheetsAdmin courseId={course.id} />
     </AppLayout>
   );
 }
